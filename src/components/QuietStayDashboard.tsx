@@ -118,6 +118,8 @@ export default function QuietStayDashboard() {
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [showMobileMenu, setShowMobileMenu] = useState(false);
   const [searchTerm, setSearchTerm] = useState("");
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [notificationsOpen, setNotificationsOpen] = useState(false);
 
   // Login form
   const [loginEmail, setLoginEmail] = useState("");
@@ -154,6 +156,55 @@ export default function QuietStayDashboard() {
   useEffect(() => {
     if (user) loadData();
   }, [user, loadData]);
+
+  // ─── Search results ──────────────────────────────────────
+  const searchResults = (() => {
+    const q = searchTerm.toLowerCase().trim();
+    if (!q || q.length < 2) return [];
+    const results: { type: string; label: string; sub: string; page: string }[] = [];
+    propertiesHook.data.filter(p =>
+      p.name.toLowerCase().includes(q) || p.city.toLowerCase().includes(q) || p.address.toLowerCase().includes(q)
+    ).slice(0, 4).forEach(p => results.push({ type: "Logement", label: p.name, sub: `${p.city} (${p.canton})`, page: "properties" }));
+    bookingsHook.data.filter(b =>
+      b.guest_name.toLowerCase().includes(q) || (b.property?.name || "").toLowerCase().includes(q)
+    ).slice(0, 4).forEach(b => results.push({ type: "Réservation", label: b.guest_name, sub: b.property?.name || "", page: "bookings" }));
+    ownersHook.data.filter(o =>
+      o.name.toLowerCase().includes(q) || (o.company || "").toLowerCase().includes(q) || o.email.toLowerCase().includes(q)
+    ).slice(0, 4).forEach(o => results.push({ type: "Propriétaire", label: o.name, sub: o.email, page: "owners" }));
+    return results.slice(0, 8);
+  })();
+
+  // ─── Notifications ──────────────────────────────────────
+  const notifications = (() => {
+    const notifs: { id: string; icon: typeof Home; color: string; message: string; time: string }[] = [];
+    // Conflicts
+    const conflicts = bookingsHook.data.filter(b => b.is_conflict && b.status !== "cancelled");
+    if (conflicts.length > 0) {
+      notifs.push({ id: "conflicts", icon: CalendarDays, color: "text-red-600 bg-red-50", message: `${conflicts.length} conflit${conflicts.length > 1 ? "s" : ""} de réservation détecté${conflicts.length > 1 ? "s" : ""}`, time: "Maintenant" });
+    }
+    // Today check-ins
+    const today = new Date().toISOString().slice(0, 10);
+    const todayCheckins = bookingsHook.data.filter(b => b.check_in.slice(0, 10) === today && b.status !== "cancelled");
+    if (todayCheckins.length > 0) {
+      notifs.push({ id: "checkins", icon: ArrowUpRight, color: "text-blue-600 bg-blue-50", message: `${todayCheckins.length} arrivée${todayCheckins.length > 1 ? "s" : ""} aujourd'hui`, time: "Aujourd'hui" });
+    }
+    // Today check-outs
+    const todayCheckouts = bookingsHook.data.filter(b => b.check_out.slice(0, 10) === today && b.status !== "cancelled");
+    if (todayCheckouts.length > 0) {
+      notifs.push({ id: "checkouts", icon: ArrowUpRight, color: "text-amber-600 bg-amber-50", message: `${todayCheckouts.length} départ${todayCheckouts.length > 1 ? "s" : ""} aujourd'hui`, time: "Aujourd'hui" });
+    }
+    // Pending cleanings
+    const pendingCleanings = cleaningsHook.data.filter(c => c.status === "pending" && c.scheduled_date.slice(0, 10) <= today);
+    if (pendingCleanings.length > 0) {
+      notifs.push({ id: "cleanings", icon: SprayCan, color: "text-violet-600 bg-violet-50", message: `${pendingCleanings.length} ménage${pendingCleanings.length > 1 ? "s" : ""} en attente`, time: "Aujourd'hui" });
+    }
+    // Draft invoices
+    const draftInvoices = invoicesHook.data.filter(i => i.status === "draft");
+    if (draftInvoices.length > 0) {
+      notifs.push({ id: "invoices", icon: FileText, color: "text-stone-600 bg-stone-100", message: `${draftInvoices.length} facture${draftInvoices.length > 1 ? "s" : ""} en brouillon`, time: "En attente" });
+    }
+    return notifs;
+  })();
 
   async function handleLogin(e: React.FormEvent) {
     e.preventDefault();
@@ -328,19 +379,68 @@ export default function QuietStayDashboard() {
             <Menu size={20} />
           </button>
 
-          <div className="flex-1 max-w-md">
+          <div className="flex-1 max-w-md relative">
             <div className="relative">
               <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-stone-400" />
-              <input type="text" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)}
+              <input type="text" value={searchTerm}
+                onChange={(e) => { setSearchTerm(e.target.value); setSearchOpen(true); }}
+                onFocus={() => setSearchOpen(true)}
                 placeholder="Rechercher logement, réservation, propriétaire..."
                 className="w-full pl-9 pr-4 py-2 rounded-xl bg-stone-100 border-0 text-sm placeholder:text-stone-400 focus:outline-none focus:ring-2 focus:ring-amber-400/50" />
             </div>
+            {searchOpen && searchResults.length > 0 && (
+              <div className="absolute top-full left-0 right-0 mt-1 bg-white rounded-xl border border-stone-200 shadow-lg z-50 overflow-hidden">
+                {searchResults.map((r, i) => (
+                  <button key={i} onClick={() => { setPage(r.page); setSearchTerm(""); setSearchOpen(false); }}
+                    className="w-full flex items-center gap-3 px-4 py-3 text-left hover:bg-stone-50 transition-colors border-b border-stone-50 last:border-0">
+                    <span className="text-[10px] font-semibold uppercase tracking-wider text-stone-400 w-24 shrink-0">{r.type}</span>
+                    <div className="min-w-0">
+                      <p className="text-sm font-medium text-stone-900 truncate">{r.label}</p>
+                      <p className="text-xs text-stone-500 truncate">{r.sub}</p>
+                    </div>
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
 
-          <div className="flex items-center gap-2">
-            <button className="relative p-2 rounded-xl hover:bg-stone-100 text-stone-500">
+          <div className="flex items-center gap-2 relative">
+            <button onClick={() => { setNotificationsOpen(!notificationsOpen); setSearchOpen(false); }} className="relative p-2 rounded-xl hover:bg-stone-100 text-stone-500">
               <Bell size={18} />
+              {notifications.length > 0 && (
+                <span className="absolute top-1 right-1 w-4 h-4 bg-red-500 text-white text-[10px] font-bold rounded-full flex items-center justify-center">{notifications.length}</span>
+              )}
             </button>
+            {notificationsOpen && (
+              <div className="absolute top-full right-0 mt-1 w-80 bg-white rounded-xl border border-stone-200 shadow-lg z-50 overflow-hidden">
+                <div className="px-4 py-3 border-b border-stone-100">
+                  <p className="text-sm font-semibold text-stone-900">Notifications</p>
+                </div>
+                {notifications.length === 0 ? (
+                  <div className="px-4 py-8 text-center text-sm text-stone-400">Aucune notification</div>
+                ) : (
+                  <div className="max-h-80 overflow-y-auto">
+                    {notifications.map(n => {
+                      const Icon = n.icon;
+                      return (
+                        <button key={n.id} onClick={() => {
+                          if (n.id === "conflicts" || n.id === "checkins" || n.id === "checkouts") setPage("bookings");
+                          else if (n.id === "cleanings") setPage("cleanings");
+                          else if (n.id === "invoices") setPage("invoices");
+                          setNotificationsOpen(false);
+                        }} className="w-full flex items-start gap-3 px-4 py-3 hover:bg-stone-50 transition-colors border-b border-stone-50 last:border-0 text-left">
+                          <div className={`p-2 rounded-lg shrink-0 ${n.color}`}><Icon size={14} /></div>
+                          <div className="min-w-0 flex-1">
+                            <p className="text-sm text-stone-900">{n.message}</p>
+                            <p className="text-xs text-stone-400 mt-0.5">{n.time}</p>
+                          </div>
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         </header>
 
@@ -348,6 +448,10 @@ export default function QuietStayDashboard() {
           {renderPage()}
         </main>
       </div>
+
+      {(searchOpen || notificationsOpen) && (
+        <div className="fixed inset-0 z-40" onClick={() => { setSearchOpen(false); setNotificationsOpen(false); }} />
+      )}
 
       {showMobileMenu && (
         <div className="fixed inset-0 bg-black/40 z-40 md:hidden" onClick={() => setShowMobileMenu(false)} />
