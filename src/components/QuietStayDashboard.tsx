@@ -120,6 +120,7 @@ export default function QuietStayDashboard() {
   const [searchTerm, setSearchTerm] = useState("");
   const [searchOpen, setSearchOpen] = useState(false);
   const [notificationsOpen, setNotificationsOpen] = useState(false);
+  const [readNotifIds, setReadNotifIds] = useState<Set<string>>(new Set());
 
   // Login form
   const [loginEmail, setLoginEmail] = useState("");
@@ -205,6 +206,19 @@ export default function QuietStayDashboard() {
     }
     return notifs;
   })();
+
+  const unreadNotifs = notifications.filter(n => !readNotifIds.has(n.id));
+  const unreadCount = unreadNotifs.length;
+
+  function markNotifRead(id: string) {
+    setReadNotifIds(prev => new Set(prev).add(id));
+  }
+  function markAllNotifsRead() {
+    setReadNotifIds(new Set(notifications.map(n => n.id)));
+  }
+  function dismissNotif(id: string) {
+    markNotifRead(id);
+  }
 
   async function handleLogin(e: React.FormEvent) {
     e.preventDefault();
@@ -407,14 +421,19 @@ export default function QuietStayDashboard() {
           <div className="flex items-center gap-2 relative">
             <button onClick={() => { setNotificationsOpen(!notificationsOpen); setSearchOpen(false); }} className="relative p-2 rounded-xl hover:bg-stone-100 text-stone-500">
               <Bell size={18} />
-              {notifications.length > 0 && (
-                <span className="absolute top-1 right-1 w-4 h-4 bg-red-500 text-white text-[10px] font-bold rounded-full flex items-center justify-center">{notifications.length}</span>
+              {unreadCount > 0 && (
+                <span className="absolute top-1 right-1 w-4 h-4 bg-red-500 text-white text-[10px] font-bold rounded-full flex items-center justify-center">{unreadCount}</span>
               )}
             </button>
             {notificationsOpen && (
               <div className="absolute top-full right-0 mt-1 w-80 bg-white rounded-xl border border-stone-200 shadow-lg z-50 overflow-hidden">
-                <div className="px-4 py-3 border-b border-stone-100">
+                <div className="px-4 py-3 border-b border-stone-100 flex items-center justify-between">
                   <p className="text-sm font-semibold text-stone-900">Notifications</p>
+                  {unreadCount > 0 && (
+                    <button onClick={markAllNotifsRead} className="text-xs text-amber-600 hover:text-amber-700 font-medium">
+                      Tout marquer comme lu
+                    </button>
+                  )}
                 </div>
                 {notifications.length === 0 ? (
                   <div className="px-4 py-8 text-center text-sm text-stone-400">Aucune notification</div>
@@ -422,19 +441,28 @@ export default function QuietStayDashboard() {
                   <div className="max-h-80 overflow-y-auto">
                     {notifications.map(n => {
                       const Icon = n.icon;
+                      const isRead = readNotifIds.has(n.id);
                       return (
-                        <button key={n.id} onClick={() => {
-                          if (n.id === "conflicts" || n.id === "checkins" || n.id === "checkouts") setPage("bookings");
-                          else if (n.id === "cleanings") setPage("cleanings");
-                          else if (n.id === "invoices") setPage("invoices");
-                          setNotificationsOpen(false);
-                        }} className="w-full flex items-start gap-3 px-4 py-3 hover:bg-stone-50 transition-colors border-b border-stone-50 last:border-0 text-left">
-                          <div className={`p-2 rounded-lg shrink-0 ${n.color}`}><Icon size={14} /></div>
-                          <div className="min-w-0 flex-1">
-                            <p className="text-sm text-stone-900">{n.message}</p>
-                            <p className="text-xs text-stone-400 mt-0.5">{n.time}</p>
-                          </div>
-                        </button>
+                        <div key={n.id} className={`flex items-start gap-3 px-4 py-3 border-b border-stone-50 last:border-0 transition-colors ${isRead ? "opacity-50" : "bg-amber-50/30"}`}>
+                          <button onClick={() => {
+                            markNotifRead(n.id);
+                            if (n.id === "conflicts" || n.id === "checkins" || n.id === "checkouts") setPage("bookings");
+                            else if (n.id === "cleanings") setPage("cleanings");
+                            else if (n.id === "invoices") setPage("invoices");
+                            setNotificationsOpen(false);
+                          }} className="flex items-start gap-3 flex-1 text-left min-w-0">
+                            <div className={`p-2 rounded-lg shrink-0 ${n.color}`}><Icon size={14} /></div>
+                            <div className="min-w-0 flex-1">
+                              <p className="text-sm text-stone-900">{n.message}</p>
+                              <p className="text-xs text-stone-400 mt-0.5">{n.time}</p>
+                            </div>
+                          </button>
+                          {!isRead && (
+                            <button onClick={() => dismissNotif(n.id)} className="shrink-0 p-1 rounded-lg hover:bg-stone-100 text-stone-400 hover:text-stone-600 mt-0.5" title="Marquer comme lu">
+                              <X size={14} />
+                            </button>
+                          )}
+                        </div>
                       );
                     })}
                   </div>
