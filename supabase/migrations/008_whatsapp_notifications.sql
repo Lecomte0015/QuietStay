@@ -71,5 +71,6 @@ CREATE TRIGGER set_updated_at_notification_settings
   FOR EACH ROW EXECUTE FUNCTION public.handle_updated_at();
 
 -- 6. REPLICA IDENTITY FULL for realtime change detection
-ALTER TABLE public.bookings REPLICA IDENTITY FULL;
-ALTER TABLE public.cleanings REPLICA IDENTITY FULL;
+-- NOTE: Run these after migration 001 (base schema) has been applied:
+-- ALTER TABLE public.bookings REPLICA IDENTITY FULL;
+-- ALTER TABLE public.cleanings REPLICA IDENTITY FULL;
