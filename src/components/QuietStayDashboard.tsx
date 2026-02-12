@@ -15,13 +15,18 @@ import ICalSyncSection from "@/components/ICalSyncSection";
 import { supabase } from "@/lib/supabase";
 import {
   useAuth, useOwners, useProperties, useBookings, useCleanings,
-  useAccesses, useInvoices, useProfiles, useDashboardKPIs, useReports
+  useAccesses, useInvoices, useProfiles, useDashboardKPIs, useReports,
+  useRealtimeBookings, useRealtimeCleanings
 } from "@/hooks/useSupabase";
 import type {
   Profile, Owner, Property, Booking, Cleaning, Access, Invoice,
   AccessType, CleaningType, CleaningStatus, BookingStatus,
-  DashboardKPIs as KPIsType, TodayMovement, Report, ReportData
+  DashboardKPIs as KPIsType, TodayMovement, Report, ReportData,
+  NotificationEventType, PropertyProfitability
 } from "@/types";
+import { useProfitability } from "@/hooks/useProfitability";
+import { useNotificationSettings } from "@/hooks/useNotificationSettings";
+import { useWhatsAppNotifier } from "@/hooks/useWhatsAppNotifier";
 
 // ─── HELPERS ─────────────────────────────────────────────────
 const fmt = (n: number) => new Intl.NumberFormat("fr-CH", { style: "currency", currency: "CHF" }).format(n);
@@ -158,6 +163,44 @@ export default function QuietStayDashboard() {
     if (user) loadData();
   }, [user, loadData]);
 
+  // ─── WhatsApp realtime notifications ───────────────────────
+  const { sendNotification } = useWhatsAppNotifier();
+
+  useRealtimeBookings(useCallback((payload: unknown) => {
+    loadData();
+    const p = payload as { eventType: string; new: Record<string, unknown>; old: Record<string, unknown> };
+    const b = p.new;
+    const propName = propertiesHook.data.find(pr => pr.id === b.property_id)?.name || "Logement";
+    if (p.eventType === "INSERT" && b.status !== "cancelled") {
+      sendNotification("booking_created", `Nouvelle réservation : ${b.guest_name} du ${fmtDate(b.check_in as string)} au ${fmtDate(b.check_out as string)} à ${propName}`, "bookings", b.id as string);
+      if (b.is_conflict) {
+        sendNotification("overbooking", `Conflit détecté : ${b.guest_name} (${fmtDate(b.check_in as string)} - ${fmtDate(b.check_out as string)}) à ${propName}`, "bookings", b.id as string);
+      }
+    }
+    if (p.eventType === "UPDATE") {
+      if (b.status === "cancelled" && p.old.status !== "cancelled") {
+        sendNotification("booking_cancelled", `Réservation annulée : ${b.guest_name} (${fmtDate(b.check_in as string)} - ${fmtDate(b.check_out as string)}) à ${propName}`, "bookings", b.id as string);
+      }
+      if (b.is_conflict && !p.old.is_conflict) {
+        sendNotification("overbooking", `Conflit détecté : ${b.guest_name} (${fmtDate(b.check_in as string)} - ${fmtDate(b.check_out as string)}) à ${propName}`, "bookings", b.id as string);
+      }
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loadData, sendNotification]));
+
+  useRealtimeCleanings(useCallback((payload: unknown) => {
+    loadData();
+    const p = payload as { eventType: string; new: Record<string, unknown>; old: Record<string, unknown> };
+    if (p.eventType === "UPDATE") {
+      const c = p.new;
+      if (c.status === "issue" && p.old.status !== "issue") {
+        const propName = propertiesHook.data.find(pr => pr.id === c.property_id)?.name || "Logement";
+        sendNotification("incident_reported", `Incident signalé pour le ménage du ${fmtDate(c.scheduled_date as string)} à ${propName}`, "cleanings", c.id as string);
+      }
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loadData, sendNotification]));
+
   // ─── Search results ──────────────────────────────────────
   const searchResults = (() => {
     const q = searchTerm.toLowerCase().trim();
@@ -242,6 +285,7 @@ export default function QuietStayDashboard() {
     { id: "cleanings", label: "Ménages", icon: SprayCan },
     { id: "owners", label: "Propriétaires", icon: Users },
     { id: "invoices", label: "Facturation", icon: FileText },
+    { id: "profitability", label: "Rentabilité", icon: DollarSign },
     { id: "settings", label: "Paramètres", icon: Settings },
   ];
 
@@ -254,6 +298,7 @@ export default function QuietStayDashboard() {
       case "cleanings": return <CleaningsPage cleanings={cleaningsHook.data} properties={propertiesHook.data} bookings={bookingsHook.data} profiles={profilesHook.data} onUpdate={cleaningsHook.update} onCreate={cleaningsHook.create} />;
       case "owners": return <OwnersPage owners={ownersHook.data} properties={propertiesHook.data} invoices={invoicesHook.data} onCreate={ownersHook.create} onRemove={ownersHook.remove} />;
       case "invoices": return <InvoicesPage invoices={invoicesHook.data} owners={ownersHook.data} onUpdate={invoicesHook.update} onRemove={invoicesHook.remove} onGenerate={invoicesHook.generateMonthly} reportsHook={reportsHook} />;
+      case "profitability": return <ProfitabilityPage />;
       case "settings": return <SettingsPage currentUser={user!} />;
       default: return <DashboardPage kpis={kpisHook.kpis} movements={kpisHook.movements} loading={kpisHook.loading} />;
     }
@@ -2075,6 +2120,178 @@ function PlanningPage({ bookings, properties }: { bookings: Booking[]; propertie
   );
 }
 
+// ─── PROFITABILITY ───────────────────────────────────────────
+function ProfitabilityPage() {
+  const { data, loading, fetch: fetchData, fetchHistory } = useProfitability();
+  const [currentDate, setCurrentDate] = useState(new Date());
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [history, setHistory] = useState<PropertyProfitability[]>([]);
+  const [loadingHistory, setLoadingHistory] = useState(false);
+
+  const year = currentDate.getFullYear();
+  const month = currentDate.getMonth() + 1;
+
+  useEffect(() => {
+    fetchData(year, month);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [year, month]);
+
+  async function handleSelectProperty(id: string) {
+    if (selectedId === id) { setSelectedId(null); return; }
+    setSelectedId(id);
+    setLoadingHistory(true);
+    const h = await fetchHistory(id, year);
+    setHistory(h);
+    setLoadingHistory(false);
+  }
+
+  function prevMonth() {
+    setCurrentDate(d => new Date(d.getFullYear(), d.getMonth() - 1, 1));
+  }
+  function nextMonth() {
+    setCurrentDate(d => new Date(d.getFullYear(), d.getMonth() + 1, 1));
+  }
+
+  function getBadge(netProfit: number): { label: string; color: string } {
+    if (netProfit > 0) return { label: "Rentable", color: "bg-emerald-100 text-emerald-800" };
+    if (netProfit === 0) return { label: "À optimiser", color: "bg-amber-100 text-amber-800" };
+    return { label: "Déficitaire", color: "bg-red-100 text-red-800" };
+  }
+
+  // Summary
+  const totalGross = data.reduce((s, r) => s + r.gross_revenue, 0);
+  const totalComm = data.reduce((s, r) => s + r.commission_amount, 0);
+  const totalClean = data.reduce((s, r) => s + r.cleaning_costs, 0);
+  const totalNet = data.reduce((s, r) => s + r.net_profit, 0);
+  const avgOccupancy = data.length > 0 ? Math.round(data.reduce((s, r) => s + r.occupancy_rate, 0) / data.length * 10) / 10 : 0;
+  const rentableCount = data.filter(r => r.net_profit > 0).length;
+  const deficitaireCount = data.filter(r => r.net_profit < 0).length;
+  const optimiserCount = data.length - rentableCount - deficitaireCount;
+
+  const monthLabel = currentDate.toLocaleDateString("fr-CH", { month: "long", year: "numeric" });
+
+  if (loading) {
+    return <div className="flex items-center justify-center py-20"><Loader2 size={24} className="animate-spin text-stone-400" /></div>;
+  }
+
+  return (
+    <div className="space-y-6">
+      {/* Header */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+        <div>
+          <h2 className="font-serif text-2xl text-stone-900">Rentabilité</h2>
+          <p className="text-sm text-stone-500 mt-1">Performance financière par logement</p>
+        </div>
+        <div className="flex items-center gap-2">
+          <button onClick={prevMonth} className="p-2 rounded-xl hover:bg-stone-100 text-stone-500"><ChevronLeft size={18} /></button>
+          <span className="text-sm font-medium text-stone-900 min-w-[160px] text-center capitalize">{monthLabel}</span>
+          <button onClick={nextMonth} className="p-2 rounded-xl hover:bg-stone-100 text-stone-500"><ChevronRight size={18} /></button>
+        </div>
+      </div>
+
+      {/* KPI Cards */}
+      <div className="grid grid-cols-2 sm:grid-cols-5 gap-4">
+        {[
+          { label: "Revenu brut", value: fmt(totalGross), color: "text-emerald-600" },
+          { label: "Commissions", value: `-${fmt(totalComm)}`, color: "text-red-600" },
+          { label: "Coût ménages", value: `-${fmt(totalClean)}`, color: "text-amber-600" },
+          { label: "Profit net", value: fmt(totalNet), color: totalNet >= 0 ? "text-emerald-600" : "text-red-600" },
+          { label: "Occupation moy.", value: `${avgOccupancy}%`, color: "text-blue-600" },
+        ].map((k, i) => (
+          <div key={i} className="bg-white rounded-2xl border border-stone-200 p-4">
+            <p className={`text-xl font-semibold ${k.color}`}>{k.value}</p>
+            <p className="text-xs text-stone-500 mt-0.5">{k.label}</p>
+          </div>
+        ))}
+      </div>
+
+      {/* Badge distribution */}
+      <div className="flex gap-3">
+        <span className="px-3 py-1 rounded-full text-xs font-medium bg-emerald-100 text-emerald-800">{rentableCount} rentable{rentableCount > 1 ? "s" : ""}</span>
+        <span className="px-3 py-1 rounded-full text-xs font-medium bg-amber-100 text-amber-800">{optimiserCount} à optimiser</span>
+        <span className="px-3 py-1 rounded-full text-xs font-medium bg-red-100 text-red-800">{deficitaireCount} déficitaire{deficitaireCount > 1 ? "s" : ""}</span>
+      </div>
+
+      {/* Properties table */}
+      <div className="bg-white rounded-2xl border border-stone-200 overflow-hidden">
+        <table className="w-full">
+          <thead>
+            <tr className="border-b border-stone-100">
+              {["Logement", "Ville", "Nuitées", "Occup.", "Revenu brut", "Commission", "Ménages", "Profit net", "Statut"].map(h => (
+                <th key={h} className="text-left px-4 py-3 text-xs font-semibold text-stone-400 uppercase tracking-wider">{h}</th>
+              ))}
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-stone-50">
+            {data.map(p => {
+              const badge = getBadge(p.net_profit);
+              return (
+                <tr key={p.property_id} onClick={() => handleSelectProperty(p.property_id)}
+                  className={`cursor-pointer transition-colors ${selectedId === p.property_id ? "bg-amber-50" : "hover:bg-stone-50/50"}`}>
+                  <td className="px-4 py-3">
+                    <p className="text-sm font-medium text-stone-900">{p.property_name}</p>
+                    <p className="text-xs text-stone-500 capitalize">{p.property_type} &middot; {p.owner_name}</p>
+                  </td>
+                  <td className="px-4 py-3 text-sm text-stone-600">{p.city} ({p.canton})</td>
+                  <td className="px-4 py-3 text-sm text-stone-900">{p.nights_booked}/{p.days_in_month}</td>
+                  <td className="px-4 py-3 text-sm"><span className={`font-medium ${p.occupancy_rate >= 70 ? "text-emerald-600" : p.occupancy_rate >= 40 ? "text-amber-600" : "text-stone-600"}`}>{p.occupancy_rate}%</span></td>
+                  <td className="px-4 py-3 text-sm text-stone-900">{fmt(p.gross_revenue)}</td>
+                  <td className="px-4 py-3 text-sm text-red-600">-{fmt(p.commission_amount)}</td>
+                  <td className="px-4 py-3 text-sm text-red-600">-{fmt(p.cleaning_costs)}</td>
+                  <td className="px-4 py-3 text-sm font-semibold"><span className={p.net_profit >= 0 ? "text-emerald-600" : "text-red-600"}>{fmt(p.net_profit)}</span></td>
+                  <td className="px-4 py-3"><span className={`px-2 py-0.5 rounded-full text-[10px] font-semibold uppercase ${badge.color}`}>{badge.label}</span></td>
+                </tr>
+              );
+            })}
+            {data.length === 0 && (
+              <tr><td colSpan={9} className="px-4 py-8 text-center text-sm text-stone-400">Aucune donnée pour cette période</td></tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+
+      {/* Monthly chart (expanded property) */}
+      {selectedId && (
+        <div className="bg-white rounded-2xl border border-stone-200 p-6">
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="text-sm font-semibold text-stone-900">
+              Évolution mensuelle — {data.find(d => d.property_id === selectedId)?.property_name || ""}
+            </h3>
+            <button onClick={() => setSelectedId(null)} className="text-stone-400 hover:text-stone-600"><X size={16} /></button>
+          </div>
+          {loadingHistory ? (
+            <div className="flex justify-center py-8"><Loader2 size={20} className="animate-spin text-stone-400" /></div>
+          ) : (
+            <div className="flex items-end gap-1" style={{ height: 180 }}>
+              {history.map((m, i) => {
+                const maxVal = Math.max(...history.map(h => Math.abs(h.net_profit)), 1);
+                const heightPct = Math.min((Math.abs(m.net_profit) / maxVal) * 100, 100);
+                const isPositive = m.net_profit >= 0;
+                const monthName = new Date(year, i).toLocaleDateString("fr-CH", { month: "short" });
+                const isCurrent = i + 1 === month;
+                return (
+                  <div key={i} className="flex-1 flex flex-col items-center gap-1">
+                    <span className={`text-[9px] font-medium ${isPositive ? "text-emerald-600" : "text-red-600"}`}>
+                      {m.net_profit !== 0 ? fmt(m.net_profit) : ""}
+                    </span>
+                    <div className="relative w-full flex items-end justify-center" style={{ height: 120 }}>
+                      <div
+                        className={`w-3/4 rounded-t transition-all ${isPositive ? "bg-emerald-500" : "bg-red-400"} ${isCurrent ? "ring-2 ring-amber-400" : ""}`}
+                        style={{ height: `${Math.max(heightPct, 2)}%` }}
+                      />
+                    </div>
+                    <span className={`text-[10px] ${isCurrent ? "font-bold text-stone-900" : "text-stone-500"}`}>{monthName}</span>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ─── SETTINGS ────────────────────────────────────────────────
 function SettingsPage({ currentUser }: { currentUser: Profile }) {
   const profilesHook = useProfiles();
@@ -2099,7 +2316,18 @@ function SettingsPage({ currentUser }: { currentUser: Profile }) {
   const [invRole, setInvRole] = useState("staff");
   const [saved, setSaved] = useState(false);
 
-  useEffect(() => { profilesHook.fetch(); }, []);
+  // Notification settings
+  const notifHook = useNotificationSettings();
+  const [notifPhone, setNotifPhone] = useState("");
+  const [notifSaving, setNotifSaving] = useState(false);
+
+  useEffect(() => { profilesHook.fetch(); notifHook.fetchSettings(); notifHook.fetchLogs(10); }, []);
+
+  useEffect(() => {
+    if (notifHook.settings?.whatsapp_phone) {
+      setNotifPhone(notifHook.settings.whatsapp_phone);
+    }
+  }, [notifHook.settings]);
 
   function handleSave() {
     setSaved(true);
@@ -2199,6 +2427,79 @@ function SettingsPage({ currentUser }: { currentUser: Profile }) {
               </div>
             </div>
           ))}
+        </div>
+      </div>
+
+      {/* Notifications WhatsApp */}
+      <div className="bg-white rounded-2xl border border-stone-200 overflow-hidden">
+        <div className="px-6 py-4 border-b border-stone-100 flex justify-between items-center">
+          <div>
+            <h3 className="font-semibold text-stone-900">Notifications WhatsApp</h3>
+            <p className="text-xs text-stone-500 mt-0.5">Alertes automatiques sur vos événements métier</p>
+          </div>
+          <button onClick={async () => {
+            await notifHook.saveSettings({ is_active: !notifHook.settings?.is_active });
+          }} className={`relative w-11 h-6 rounded-full transition-colors ${notifHook.settings?.is_active ? "bg-emerald-500" : "bg-stone-300"}`}>
+            <span className={`absolute top-0.5 w-5 h-5 bg-white rounded-full shadow transition-all ${notifHook.settings?.is_active ? "left-[22px]" : "left-0.5"}`} />
+          </button>
+        </div>
+        <div className="p-6 space-y-5">
+          <div className="grid grid-cols-3 gap-4 items-center">
+            <label className="text-sm font-medium text-stone-700">Numéro WhatsApp</label>
+            <div className="col-span-2 flex gap-2">
+              <input type="tel" placeholder="+41 79 123 45 67"
+                value={notifPhone}
+                onChange={e => setNotifPhone(e.target.value)}
+                className="flex-1 px-4 py-2.5 rounded-xl border border-stone-200 text-sm focus:outline-none focus:ring-2 focus:ring-amber-400/50 focus:border-amber-400" />
+              <button onClick={async () => {
+                setNotifSaving(true);
+                await notifHook.saveSettings({ whatsapp_phone: notifPhone });
+                setNotifSaving(false);
+              }} disabled={notifSaving}
+                className="px-3 py-2.5 rounded-xl bg-stone-900 text-white text-xs font-medium hover:bg-stone-800 transition-colors disabled:opacity-50">
+                {notifSaving ? <Loader2 size={14} className="animate-spin" /> : "Enregistrer"}
+              </button>
+            </div>
+          </div>
+
+          <div className="border-t border-stone-100 pt-4">
+            <p className="text-xs font-semibold text-stone-400 uppercase tracking-wider mb-3">Événements</p>
+            {[
+              { key: "event_overbooking" as const, label: "Conflit de réservation (overbooking)" },
+              { key: "event_booking_created" as const, label: "Nouvelle réservation créée" },
+              { key: "event_booking_cancelled" as const, label: "Réservation annulée" },
+              { key: "event_cleaning_not_validated" as const, label: "Ménage non validé après départ" },
+              { key: "event_incident_reported" as const, label: "Incident signalé" },
+              { key: "event_checkin_no_cleaning" as const, label: "Check-in proche sans ménage validé" },
+            ].map(evt => (
+              <div key={evt.key} className="flex items-center justify-between py-2.5">
+                <span className="text-sm text-stone-700">{evt.label}</span>
+                <button onClick={async () => {
+                  await notifHook.saveSettings({ [evt.key]: !notifHook.settings?.[evt.key] });
+                }} className={`relative w-9 h-5 rounded-full transition-colors ${notifHook.settings?.[evt.key] ? "bg-emerald-500" : "bg-stone-300"}`}>
+                  <span className={`absolute top-0.5 w-4 h-4 bg-white rounded-full shadow transition-all ${notifHook.settings?.[evt.key] ? "left-[18px]" : "left-0.5"}`} />
+                </button>
+              </div>
+            ))}
+          </div>
+
+          {/* Recent logs */}
+          {notifHook.logs.length > 0 && (
+            <div className="border-t border-stone-100 pt-4">
+              <p className="text-xs font-semibold text-stone-400 uppercase tracking-wider mb-3">Historique récent</p>
+              <div className="space-y-2 max-h-48 overflow-y-auto">
+                {notifHook.logs.map(log => (
+                  <div key={log.id} className="flex items-start gap-3 text-sm">
+                    <span className={`mt-0.5 w-2 h-2 rounded-full shrink-0 ${log.status === "sent" ? "bg-emerald-500" : log.status === "failed" ? "bg-red-500" : "bg-amber-500"}`} />
+                    <div className="min-w-0 flex-1">
+                      <p className="text-stone-700 truncate">{log.message}</p>
+                      <p className="text-xs text-stone-400">{new Date(log.created_at).toLocaleString("fr-CH")} &middot; {log.status === "sent" ? "Envoyé" : log.status === "failed" ? "Échoué" : "En attente"}</p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
       </div>
 

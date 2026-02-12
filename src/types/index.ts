@@ -247,3 +247,63 @@ export interface Report {
   generated_at: string;
   owner?: Owner;
 }
+
+// ─── WhatsApp Notifications ──────────────────────────────────
+export type NotificationEventType =
+  | 'overbooking'
+  | 'booking_created'
+  | 'booking_cancelled'
+  | 'cleaning_not_validated'
+  | 'incident_reported'
+  | 'checkin_no_cleaning';
+
+export type NotificationStatus = 'pending' | 'sent' | 'failed';
+
+export interface NotificationSettings {
+  id: string;
+  user_id: string;
+  whatsapp_phone: string | null;
+  event_overbooking: boolean;
+  event_booking_created: boolean;
+  event_booking_cancelled: boolean;
+  event_cleaning_not_validated: boolean;
+  event_incident_reported: boolean;
+  event_checkin_no_cleaning: boolean;
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface NotificationLog {
+  id: string;
+  user_id: string;
+  event_type: NotificationEventType;
+  message: string;
+  whatsapp_phone: string;
+  status: NotificationStatus;
+  error_message: string | null;
+  meta_message_id: string | null;
+  entity_type: string | null;
+  entity_id: string | null;
+  created_at: string;
+}
+
+// ─── Profitability ──────────────────────────────────────────
+export type ProfitabilityBadge = 'rentable' | 'a_optimiser' | 'deficitaire';
+
+export interface PropertyProfitability {
+  property_id: string;
+  property_name: string;
+  property_type: string;
+  city: string;
+  canton: string;
+  owner_name: string;
+  bookings_count: number;
+  nights_booked: number;
+  days_in_month: number;
+  occupancy_rate: number;
+  gross_revenue: number;
+  commission_amount: number;
+  cleaning_costs: number;
+  net_profit: number;
+}
