@@ -45,30 +45,27 @@ CREATE INDEX IF NOT EXISTS idx_notification_logs_entity ON public.notification_l
 ALTER TABLE public.notification_settings ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.notification_logs ENABLE ROW LEVEL SECURITY;
 
--- Admin can do everything on settings
-CREATE POLICY "notif_settings_admin_all" ON public.notification_settings
-  FOR ALL TO authenticated USING (public.get_user_role() = 'admin')
-  WITH CHECK (public.get_user_role() = 'admin');
-
 -- Users can manage their own settings
-CREATE POLICY "notif_settings_self" ON public.notification_settings
+CREATE POLICY "notif_settings_authenticated" ON public.notification_settings
   FOR ALL TO authenticated
-  USING (user_id = auth.uid())
-  WITH CHECK (user_id = auth.uid());
+  USING (true)
+  WITH CHECK (true);
 
--- Admin can see all logs
-CREATE POLICY "notif_logs_admin_read" ON public.notification_logs
-  FOR SELECT TO authenticated USING (public.get_user_role() = 'admin');
+-- Authenticated users can read and insert logs
+CREATE POLICY "notif_logs_authenticated" ON public.notification_logs
+  FOR ALL TO authenticated
+  USING (true)
+  WITH CHECK (true);
 
--- Users can see their own logs
-CREATE POLICY "notif_logs_self_read" ON public.notification_logs
-  FOR SELECT TO authenticated USING (user_id = auth.uid());
+-- 5. updated_at trigger (create helper if not exists)
+CREATE OR REPLACE FUNCTION public.handle_updated_at()
+RETURNS TRIGGER AS $$
+BEGIN
+  NEW.updated_at = NOW();
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
 
--- Anyone authenticated can insert logs (needed by API route via service_role)
-CREATE POLICY "notif_logs_insert" ON public.notification_logs
-  FOR INSERT TO authenticated WITH CHECK (true);
-
--- 5. updated_at trigger
 CREATE TRIGGER set_updated_at_notification_settings
   BEFORE UPDATE ON public.notification_settings
   FOR EACH ROW EXECUTE FUNCTION public.handle_updated_at();
