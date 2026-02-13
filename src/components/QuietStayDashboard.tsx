@@ -300,7 +300,7 @@ export default function QuietStayDashboard() {
       case "properties": return <PropertiesPage properties={propertiesHook.data} bookings={bookingsHook.data} accesses={accessesHook.data} owners={ownersHook.data} onCreate={propertiesHook.create} onRemove={propertiesHook.remove} onCreateAccess={accessesHook.create} onRefreshAccesses={accessesHook.fetch} />;
       case "bookings": return <BookingsPage bookings={bookingsHook.data} properties={propertiesHook.data} onCreate={bookingsHook.create} onUpdate={bookingsHook.update} />;
       case "planning": return <PlanningPage bookings={bookingsHook.data} properties={propertiesHook.data} />;
-      case "cleanings": return <CleaningsPage cleanings={cleaningsHook.data} properties={propertiesHook.data} bookings={bookingsHook.data} profiles={profilesHook.data} onUpdate={cleaningsHook.update} onCreate={cleaningsHook.create} />;
+      case "cleanings": return <CleaningsPage cleanings={cleaningsHook.data} properties={propertiesHook.data} bookings={bookingsHook.data} profiles={profilesHook.data} onUpdate={cleaningsHook.update} onCreate={cleaningsHook.create} onRemove={cleaningsHook.remove} />;
       case "owners": return <OwnersPage owners={ownersHook.data} properties={propertiesHook.data} invoices={invoicesHook.data} onCreate={ownersHook.create} onRemove={ownersHook.remove} />;
       case "invoices": return <InvoicesPage invoices={invoicesHook.data} owners={ownersHook.data} onUpdate={invoicesHook.update} onRemove={invoicesHook.remove} onGenerate={invoicesHook.generateMonthly} reportsHook={reportsHook} />;
       case "profitability": return <ProfitabilityPage />;
@@ -1056,10 +1056,11 @@ function BookingsPage({ bookings, properties, onCreate, onUpdate }: {
 }
 
 // ─── CLEANINGS ───────────────────────────────────────────────
-function CleaningsPage({ cleanings, properties, bookings, profiles, onUpdate, onCreate }: {
+function CleaningsPage({ cleanings, properties, bookings, profiles, onUpdate, onCreate, onRemove }: {
   cleanings: Cleaning[]; properties: Property[]; bookings: Booking[]; profiles: Profile[];
   onUpdate: (id: string, updates: Partial<Cleaning>) => Promise<unknown>;
   onCreate: (item: Partial<Cleaning>) => Promise<unknown>;
+  onRemove: (id: string) => Promise<void>;
 }) {
   const [filter, setFilter] = useState("all");
   const [expanded, setExpanded] = useState<string | null>(null);
@@ -1270,6 +1271,13 @@ function CleaningsPage({ cleanings, properties, bookings, profiles, onUpdate, on
                     <option value="validated">Validé</option>
                     <option value="issue">Problème</option>
                   </select>
+                  <button
+                    onClick={(e) => { e.stopPropagation(); if (confirm(`Supprimer le ménage de ${prop?.name || "ce logement"} ?`)) onRemove(c.id); }}
+                    className="p-1.5 rounded-lg text-stone-400 hover:text-red-600 hover:bg-red-50 transition-colors"
+                    title="Supprimer"
+                  >
+                    <Trash2 size={15} />
+                  </button>
                   <ChevronDown size={16} className={`text-stone-400 transition-transform ${isExpanded ? "rotate-180" : ""}`} />
                 </div>
               </div>
