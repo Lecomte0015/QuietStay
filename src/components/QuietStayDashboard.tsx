@@ -167,7 +167,10 @@ export default function QuietStayDashboard() {
   const { sendNotification } = useWhatsAppNotifier();
 
   useRealtimeBookings(useCallback((payload: unknown) => {
-    loadData();
+    // Refresh only bookings + KPIs (not all 8 tables)
+    bookingsHook.fetchWithProperty();
+    kpisHook.fetch();
+
     const p = payload as { eventType: string; new: Record<string, unknown>; old: Record<string, unknown> };
     const b = p.new;
     const propName = propertiesHook.data.find(pr => pr.id === b.property_id)?.name || "Logement";
@@ -186,10 +189,12 @@ export default function QuietStayDashboard() {
       }
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [loadData, sendNotification]));
+  }, [sendNotification]));
 
   useRealtimeCleanings(useCallback((payload: unknown) => {
-    loadData();
+    // Refresh only cleanings (not all 8 tables)
+    cleaningsHook.fetchFull();
+
     const p = payload as { eventType: string; new: Record<string, unknown>; old: Record<string, unknown> };
     if (p.eventType === "UPDATE") {
       const c = p.new;
@@ -199,7 +204,7 @@ export default function QuietStayDashboard() {
       }
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [loadData, sendNotification]));
+  }, [sendNotification]));
 
   // ─── Search results ──────────────────────────────────────
   const searchResults = (() => {
