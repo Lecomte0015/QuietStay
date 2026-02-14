@@ -9,33 +9,37 @@ export function useCompanySettings() {
 
   const fetchSettings = useCallback(async () => {
     setLoading(true);
-    const { data } = await supabase
-      .from('company_settings')
-      .select('*')
-      .limit(1)
-      .single();
-    setSettings(data as CompanySettings | null);
+    try {
+      const { data } = await supabase
+        .from('company_settings')
+        .select('*')
+        .limit(1)
+        .single();
+      setSettings(data as CompanySettings | null);
+    } catch { /* table may not exist yet */ }
     setLoading(false);
   }, []);
 
   const saveSettings = useCallback(async (updates: Partial<CompanySettings>) => {
     setSaving(true);
-    if (settings) {
-      const { data } = await supabase
-        .from('company_settings')
-        .update(updates)
-        .eq('id', settings.id)
-        .select()
-        .single();
-      if (data) setSettings(data as CompanySettings);
-    } else {
-      const { data } = await supabase
-        .from('company_settings')
-        .insert(updates)
-        .select()
-        .single();
-      if (data) setSettings(data as CompanySettings);
-    }
+    try {
+      if (settings) {
+        const { data } = await supabase
+          .from('company_settings')
+          .update(updates)
+          .eq('id', settings.id)
+          .select()
+          .single();
+        if (data) setSettings(data as CompanySettings);
+      } else {
+        const { data } = await supabase
+          .from('company_settings')
+          .insert(updates)
+          .select()
+          .single();
+        if (data) setSettings(data as CompanySettings);
+      }
+    } catch { /* table may not exist yet */ }
     setSaving(false);
   }, [settings]);
 

@@ -2473,7 +2473,9 @@ function SettingsPage({ currentUser }: { currentUser: Profile }) {
   }, [companyHook.settings]);
 
   async function handleSave() {
-    await companyHook.saveSettings(companyForm);
+    try {
+      await companyHook.saveSettings(companyForm);
+    } catch { /* table may not exist yet */ }
     setSaved(true);
     setTimeout(() => setSaved(false), 2000);
   }
@@ -2586,7 +2588,7 @@ function SettingsPage({ currentUser }: { currentUser: Profile }) {
             <p className="text-xs text-stone-500 mt-0.5">Alertes automatiques sur vos événements métier</p>
           </div>
           <button onClick={async () => {
-            await notifHook.saveSettings({ is_active: !notifHook.settings?.is_active });
+            try { await notifHook.saveSettings({ is_active: !notifHook.settings?.is_active }); } catch { /* ignore */ }
           }} className={`relative w-11 h-6 rounded-full transition-colors ${notifHook.settings?.is_active ? "bg-emerald-500" : "bg-stone-300"}`}>
             <span className={`absolute top-0.5 w-5 h-5 bg-white rounded-full shadow transition-all ${notifHook.settings?.is_active ? "left-[22px]" : "left-0.5"}`} />
           </button>
@@ -2601,7 +2603,7 @@ function SettingsPage({ currentUser }: { currentUser: Profile }) {
                 className="flex-1 px-4 py-2.5 rounded-xl border border-stone-200 text-sm focus:outline-none focus:ring-2 focus:ring-amber-400/50 focus:border-amber-400" />
               <button onClick={async () => {
                 setNotifSaving(true);
-                await notifHook.saveSettings({ whatsapp_phone: notifPhone });
+                try { await notifHook.saveSettings({ whatsapp_phone: notifPhone }); } catch { /* ignore */ }
                 setNotifSaving(false);
               }} disabled={notifSaving}
                 className="px-3 py-2.5 rounded-xl bg-stone-900 text-white text-xs font-medium hover:bg-stone-800 transition-colors disabled:opacity-50">
@@ -2623,7 +2625,7 @@ function SettingsPage({ currentUser }: { currentUser: Profile }) {
               <div key={evt.key} className="flex items-center justify-between py-2.5">
                 <span className="text-sm text-stone-700">{evt.label}</span>
                 <button onClick={async () => {
-                  await notifHook.saveSettings({ [evt.key]: !notifHook.settings?.[evt.key] });
+                  try { await notifHook.saveSettings({ [evt.key]: !notifHook.settings?.[evt.key] }); } catch { /* ignore */ }
                 }} className={`relative w-9 h-5 rounded-full transition-colors ${notifHook.settings?.[evt.key] ? "bg-emerald-500" : "bg-stone-300"}`}>
                   <span className={`absolute top-0.5 w-4 h-4 bg-white rounded-full shadow transition-all ${notifHook.settings?.[evt.key] ? "left-[18px]" : "left-0.5"}`} />
                 </button>
