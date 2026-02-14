@@ -2456,12 +2456,17 @@ function SettingsPage({ currentUser }: { currentUser: Profile }) {
     }
   }, [companyHook.settings]);
 
+  const [saveError, setSaveError] = useState("");
+
   async function handleSave() {
-    try {
-      await companyHook.saveSettings(companyForm);
-    } catch { /* table may not exist yet */ }
-    setSaved(true);
-    setTimeout(() => setSaved(false), 2000);
+    setSaveError("");
+    const ok = await companyHook.saveSettings(companyForm);
+    if (ok) {
+      setSaved(true);
+      setTimeout(() => setSaved(false), 2000);
+    } else {
+      setSaveError(companyHook.error || "Erreur lors de la sauvegarde. Vérifiez la console.");
+    }
   }
 
   const companyFields = [
@@ -2638,11 +2643,14 @@ function SettingsPage({ currentUser }: { currentUser: Profile }) {
       </div>
 
       <div className="flex justify-end items-center gap-4">
+        {saveError && (
+          <span className="text-sm text-red-600 font-medium">{saveError}</span>
+        )}
         {saved && (
           <span className="text-sm text-emerald-600 font-medium">Modifications enregistrées</span>
         )}
-        <button onClick={handleSave} className="px-6 py-2.5 rounded-xl bg-stone-900 text-white text-sm font-medium hover:bg-stone-800 transition-colors">
-          Enregistrer les modifications
+        <button onClick={handleSave} disabled={companyHook.saving} className="px-6 py-2.5 rounded-xl bg-stone-900 text-white text-sm font-medium hover:bg-stone-800 transition-colors disabled:opacity-50">
+          {companyHook.saving ? <Loader2 size={16} className="animate-spin" /> : "Enregistrer les modifications"}
         </button>
       </div>
 
