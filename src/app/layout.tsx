@@ -24,8 +24,8 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    <html lang="fr">
-      <body className={`${dmSans.variable} ${dmSerif.variable} ${dmSans.className}`}>
+    <html lang="fr" suppressHydrationWarning>
+      <body className={`${dmSans.variable} ${dmSerif.variable} ${dmSans.className}`} suppressHydrationWarning>
         {children}
       </body>
     </html>
