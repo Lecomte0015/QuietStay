@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback, useRef, type ReactNode } from "react";
+import { useState, useEffect, useRef, type ReactNode } from "react";
 import {
   Home, Building2, CalendarDays, SprayCan, Users, FileText,
   Settings, LogOut, Plus, Search, ChevronDown, X,
@@ -187,8 +187,7 @@ export default function QuietStayDashboard() {
   // ─── WhatsApp realtime notifications ───────────────────────
   const { sendNotification } = useWhatsAppNotifier();
 
-  useRealtimeBookings(useCallback((payload: unknown) => {
-    // Refresh only bookings + KPIs (not all 8 tables)
+  useRealtimeBookings((payload: unknown) => {
     bookingsHook.fetchWithProperty();
     kpisHook.fetch();
 
@@ -209,11 +208,9 @@ export default function QuietStayDashboard() {
         sendNotification("overbooking", `Conflit détecté : ${b.guest_name} (${fmtDate(b.check_in as string)} - ${fmtDate(b.check_out as string)}) à ${propName}`, "bookings", b.id as string);
       }
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sendNotification]));
+  });
 
-  useRealtimeCleanings(useCallback((payload: unknown) => {
-    // Refresh only cleanings (not all 8 tables)
+  useRealtimeCleanings((payload: unknown) => {
     cleaningsHook.fetchFull();
 
     const p = payload as { eventType: string; new: Record<string, unknown>; old: Record<string, unknown> };
@@ -224,8 +221,7 @@ export default function QuietStayDashboard() {
         sendNotification("incident_reported", `Incident signalé pour le ménage du ${fmtDate(c.scheduled_date as string)} à ${propName}`, "cleanings", c.id as string);
       }
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sendNotification]));
+  });
 
   // ─── Search results ──────────────────────────────────────
   const searchResults = (() => {

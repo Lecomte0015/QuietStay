@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { supabase } from '../lib/supabase';
 import type {
   Profile, Owner, Property, Booking, Cleaning,
@@ -11,25 +11,24 @@ export function useAuth() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    // Timeout: if auth takes >5s, stop blocking and show login screen
-    const authTimeout = setTimeout(() => setLoading(false), 5000);
+    let mounted = true;
 
     supabase.auth.getSession().then(({ data: { session } }) => {
+      if (!mounted) return;
       if (session?.user) {
-        fetchProfile(session.user.id).finally(() => clearTimeout(authTimeout));
+        resolveUser(session.user.id, session.user.email || '');
       } else {
-        clearTimeout(authTimeout);
         setLoading(false);
       }
     }).catch(() => {
-      clearTimeout(authTimeout);
-      setLoading(false);
+      if (mounted) setLoading(false);
     });
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       async (_event, session) => {
+        if (!mounted) return;
         if (session?.user) {
-          await fetchProfile(session.user.id);
+          await resolveUser(session.user.id, session.user.email || '');
         } else {
           setUser(null);
           setLoading(false);
@@ -38,12 +37,13 @@ export function useAuth() {
     );
 
     return () => {
-      clearTimeout(authTimeout);
+      mounted = false;
       subscription.unsubscribe();
     };
   }, []);
 
-  async function fetchProfile(userId: string) {
+  async function resolveUser(userId: string, email: string) {
+    // Try to fetch full profile, but use session data as fallback
     try {
       const { data } = await supabase
         .from('profiles')
@@ -51,10 +51,25 @@ export function useAuth() {
         .eq('id', userId)
         .abortSignal(AbortSignal.timeout(5000))
         .single();
-      setUser(data);
+      if (data) {
+        setUser(data);
+        setLoading(false);
+        return;
+      }
     } catch {
-      // Profile fetch failed/timed out — still allow login screen
+      // Profile fetch failed/timed out
     }
+    // Fallback: create minimal profile from session so dashboard still renders
+    setUser({
+      id: userId,
+      email,
+      full_name: null,
+      role: 'admin',
+      phone: null,
+      avatar_url: null,
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    } as Profile);
     setLoading(false);
   }
 
@@ -355,24 +370,35 @@ export function useReports() {
 }
 
 // ─── Realtime Subscriptions ─────────────────────────────────
+// Use refs to avoid re-subscribing on every render when callbacks change
 export function useRealtimeBookings(callback: (payload: unknown) => void) {
+  const callbackRef = useRef(callback);
+  callbackRef.current = callback;
+
   useEffect(() => {
     const channel = supabase
       .channel('bookings-changes')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'bookings' }, callback)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'bookings' }, (payload) => {
+        callbackRef.current(payload);
+      })
       .subscribe();
 
     return () => { supabase.removeChannel(channel); };
-  }, [callback]);
+  }, []);
 }
 
 export function useRealtimeCleanings(callback: (payload: unknown) => void) {
+  const callbackRef = useRef(callback);
+  callbackRef.current = callback;
+
   useEffect(() => {
     const channel = supabase
       .channel('cleanings-changes')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'cleanings' }, callback)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'cleanings' }, (payload) => {
+        callbackRef.current(payload);
+      })
       .subscribe();
 
     return () => { supabase.removeChannel(channel); };
-  }, [callback]);
+  }, []);
 }
