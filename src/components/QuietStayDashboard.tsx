@@ -144,24 +144,45 @@ export default function QuietStayDashboard() {
   const kpisHook = useDashboardKPIs();
   const reportsHook = useReports();
 
-  // Fetch all data when user is authenticated
-  const loadData = useCallback(async () => {
-    await Promise.all([
-      ownersHook.fetch(),
+  // Track loading + which pages have been loaded
+  const [dataReady, setDataReady] = useState(false);
+  const loadedPages = useRef(new Set<string>());
+
+  // Essential data: KPIs, properties, bookings, owners (needed for dashboard, notifications, search)
+  useEffect(() => {
+    if (!user) return;
+    Promise.all([
+      kpisHook.fetch(),
       propertiesHook.fetchWithOwners(),
       bookingsHook.fetchWithProperty(),
-      cleaningsHook.fetchFull(),
-      accessesHook.fetch(),
-      invoicesHook.fetchWithOwners(),
-      profilesHook.fetch(),
-      kpisHook.fetch(),
-    ]);
+      ownersHook.fetch(),
+    ]).then(() => setDataReady(true));
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [user]);
 
+  // Lazy-load per page: only fetch when navigating to that section
   useEffect(() => {
-    if (user) loadData();
-  }, [user, loadData]);
+    if (!user || !dataReady) return;
+    if (loadedPages.current.has(page)) return;
+    loadedPages.current.add(page);
+
+    switch (page) {
+      case "cleanings":
+        cleaningsHook.fetchFull();
+        profilesHook.fetch();
+        break;
+      case "properties":
+        accessesHook.fetch();
+        break;
+      case "invoices":
+        invoicesHook.fetchWithOwners();
+        break;
+      case "settings":
+        profilesHook.fetch();
+        break;
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user, dataReady, page]);
 
   // ─── WhatsApp realtime notifications ───────────────────────
   const { sendNotification } = useWhatsAppNotifier();
@@ -318,6 +339,21 @@ export default function QuietStayDashboard() {
             <span className="text-white text-xl font-bold">QS</span>
           </div>
           <Loader2 size={24} className="animate-spin text-stone-400 mx-auto" />
+        </div>
+      </div>
+    );
+  }
+
+  // ─── Data Loading ──────────────────────────────────────────
+  if (user && !dataReady) {
+    return (
+      <div className="flex h-screen items-center justify-center bg-stone-50">
+        <div className="text-center space-y-4">
+          <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-amber-400 to-orange-500 flex items-center justify-center mx-auto shadow-lg shadow-amber-500/20">
+            <span className="text-white text-xl font-bold">QS</span>
+          </div>
+          <Loader2 size={24} className="animate-spin text-amber-500 mx-auto" />
+          <p className="text-sm text-stone-500">Chargement des données…</p>
         </div>
       </div>
     );
