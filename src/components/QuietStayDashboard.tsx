@@ -7,7 +7,7 @@ import {
   Key, Lock,
   Smartphone, Hash, Camera, Menu, Bell,
   ArrowUpRight, TrendingUp, MapPin, Phone, Mail,
-  MoreHorizontal, Image, Trash2, Eye, Send, CheckCircle, Pencil,
+  MoreHorizontal, Image, Trash2, Eye, Send, CheckCircle, Pencil, Download,
   BedDouble, Plane, Loader2, UserCheck, DollarSign, Clock,
   ChevronLeft, ChevronRight, Calendar
 } from "lucide-react";
@@ -27,6 +27,7 @@ import type {
 import { useProfitability } from "@/hooks/useProfitability";
 import { useNotificationSettings } from "@/hooks/useNotificationSettings";
 import { useWhatsAppNotifier } from "@/hooks/useWhatsAppNotifier";
+import { useCompanySettings } from "@/hooks/useCompanySettings";
 
 // ─── HELPERS ─────────────────────────────────────────────────
 const fmt = (n: number) => new Intl.NumberFormat("fr-CH", { style: "currency", currency: "CHF" }).format(n);
@@ -1663,6 +1664,11 @@ function InvoicesPage({ invoices, owners, onUpdate, onRemove, onGenerate, report
   const [generatingReport, setGeneratingReport] = useState(false);
   const [viewReport, setViewReport] = useState<Report | null>(null);
 
+  // PDF / Email states
+  const [downloadingId, setDownloadingId] = useState<string | null>(null);
+  const [emailingId, setEmailingId] = useState<string | null>(null);
+  const [emailResult, setEmailResult] = useState<{ ok: boolean; msg: string } | null>(null);
+
   useEffect(() => {
     if (selectedOwnerId && view === "reports") {
       reportsHook.fetchByOwner(selectedOwnerId);
@@ -1694,6 +1700,52 @@ function InvoicesPage({ invoices, owners, onUpdate, onRemove, onGenerate, report
       await reportsHook.generate(selectedOwnerId, reportYear, reportMonth);
     } catch { /* handled by hook */ }
     setGeneratingReport(false);
+  }
+
+  async function handleDownloadPdf(invoiceId: string) {
+    setDownloadingId(invoiceId);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) return;
+      const res = await fetch("/api/invoices/pdf", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${session.access_token}` },
+        body: JSON.stringify({ invoice_id: invoiceId }),
+      });
+      if (!res.ok) {
+        const err = await res.json();
+        alert(err.error || "Erreur lors de la génération du PDF");
+        return;
+      }
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `facture-${invoiceId.slice(0, 8)}.pdf`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch { alert("Erreur lors de la génération du PDF"); }
+    finally { setDownloadingId(null); }
+  }
+
+  async function handleSendEmail(invoiceId: string) {
+    setEmailingId(invoiceId);
+    setEmailResult(null);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) return;
+      const res = await fetch("/api/invoices/email", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${session.access_token}` },
+        body: JSON.stringify({ invoice_id: invoiceId }),
+      });
+      const data = await res.json();
+      setEmailResult({ ok: data.success, msg: data.message });
+      if (data.success) {
+        await onUpdate(invoiceId, { status: "sent" });
+      }
+    } catch { setEmailResult({ ok: false, msg: "Erreur réseau" }); }
+    finally { setEmailingId(null); }
   }
 
   const currentMonth = new Date().toLocaleDateString("fr-CH", { month: "long", year: "numeric" });
@@ -1776,6 +1828,18 @@ function InvoicesPage({ invoices, owners, onUpdate, onRemove, onGenerate, report
                             className="w-full flex items-center gap-2 px-4 py-2.5 text-sm text-stone-700 hover:bg-stone-50 transition-colors">
                             <Eye size={14} /> Voir la facture
                           </button>
+                          <button onClick={() => { handleDownloadPdf(inv.id); setOpenMenu(null); }}
+                            disabled={downloadingId === inv.id}
+                            className="w-full flex items-center gap-2 px-4 py-2.5 text-sm text-stone-700 hover:bg-stone-50 transition-colors disabled:opacity-50">
+                            {downloadingId === inv.id ? <Loader2 size={14} className="animate-spin" /> : <Download size={14} />}
+                            Télécharger PDF
+                          </button>
+                          <button onClick={() => { handleSendEmail(inv.id); setOpenMenu(null); }}
+                            disabled={emailingId === inv.id}
+                            className="w-full flex items-center gap-2 px-4 py-2.5 text-sm text-stone-700 hover:bg-stone-50 transition-colors disabled:opacity-50">
+                            {emailingId === inv.id ? <Loader2 size={14} className="animate-spin" /> : <Mail size={14} />}
+                            Envoyer par email
+                          </button>
                           <div className="border-t border-stone-100 my-1" />
                           <p className="px-4 py-1 text-[10px] font-semibold text-stone-400 uppercase tracking-wider">Changer le statut</p>
                           {(["draft", "sent", "paid"] as const).map(s => (
@@ -1831,11 +1895,19 @@ function InvoicesPage({ invoices, owners, onUpdate, onRemove, onGenerate, report
                 {owner?.iban && (
                   <div className="text-xs text-stone-500">IBAN : <span className="font-mono">{owner.iban}</span></div>
                 )}
-                <div className="flex justify-end gap-3 pt-2">
+                <div className="flex justify-end gap-3 pt-2 flex-wrap">
+                  <button onClick={() => handleDownloadPdf(viewInvoice.id)} disabled={downloadingId === viewInvoice.id}
+                    className="inline-flex items-center gap-1.5 px-4 py-2.5 rounded-xl text-sm font-medium bg-stone-100 text-stone-700 hover:bg-stone-200 transition-colors disabled:opacity-50">
+                    {downloadingId === viewInvoice.id ? <Loader2 size={14} className="animate-spin" /> : <Download size={14} />} PDF
+                  </button>
+                  <button onClick={() => handleSendEmail(viewInvoice.id)} disabled={emailingId === viewInvoice.id}
+                    className="inline-flex items-center gap-1.5 px-4 py-2.5 rounded-xl text-sm font-medium bg-amber-100 text-amber-800 hover:bg-amber-200 transition-colors disabled:opacity-50">
+                    {emailingId === viewInvoice.id ? <Loader2 size={14} className="animate-spin" /> : <Mail size={14} />} Envoyer par email
+                  </button>
                   {viewInvoice.status === "draft" && (
                     <button onClick={async () => { await onUpdate(viewInvoice.id, { status: "sent" }); setViewInvoice(prev => prev ? { ...prev, status: "sent" } : null); }}
                       className="inline-flex items-center gap-1.5 px-4 py-2.5 rounded-xl text-sm font-medium bg-blue-600 text-white hover:bg-blue-500 transition-colors">
-                      <Send size={14} /> Envoyer
+                      <Send size={14} /> Marquer envoyée
                     </button>
                   )}
                   {viewInvoice.status === "sent" && (
@@ -1871,6 +1943,14 @@ function InvoicesPage({ invoices, owners, onUpdate, onRemove, onGenerate, report
           </div>
         </Modal>
       </>)}
+
+      {/* Email result toast */}
+      {emailResult && (
+        <div className={`fixed bottom-6 right-6 z-50 px-5 py-3 rounded-xl shadow-lg text-sm font-medium flex items-center gap-3 ${emailResult.ok ? "bg-emerald-600 text-white" : "bg-red-600 text-white"}`}>
+          {emailResult.msg}
+          <button onClick={() => setEmailResult(null)} className="opacity-80 hover:opacity-100"><X size={14} /></button>
+        </div>
+      )}
 
       {view === "reports" && (
         <div className="space-y-6">
@@ -2344,13 +2424,11 @@ function ProfitabilityPage() {
 // ─── SETTINGS ────────────────────────────────────────────────
 function SettingsPage({ currentUser }: { currentUser: Profile }) {
   const profilesHook = useProfiles();
+  const companyHook = useCompanySettings();
 
-  const [company, setCompany] = useState({
-    name: "QuietStay Sàrl",
-    email: "contact@quietstay.ch",
-    phone: "+41 22 123 45 67",
-    address: "Rue du Rhône 42, 1204 Genève",
-    ide: "CHE-123.456.789",
+  const [companyForm, setCompanyForm] = useState({
+    name: "", address: "", city: "", postal_code: "", canton: "GE",
+    phone: "", email: "", iban: "", tva_number: "",
   });
 
   const [rates, setRates] = useState({
@@ -2370,7 +2448,7 @@ function SettingsPage({ currentUser }: { currentUser: Profile }) {
   const [notifPhone, setNotifPhone] = useState("");
   const [notifSaving, setNotifSaving] = useState(false);
 
-  useEffect(() => { profilesHook.fetch(); notifHook.fetchSettings(); notifHook.fetchLogs(10); }, []);
+  useEffect(() => { profilesHook.fetch(); notifHook.fetchSettings(); notifHook.fetchLogs(10); companyHook.fetchSettings(); }, []);
 
   useEffect(() => {
     if (notifHook.settings?.whatsapp_phone) {
@@ -2378,17 +2456,38 @@ function SettingsPage({ currentUser }: { currentUser: Profile }) {
     }
   }, [notifHook.settings]);
 
-  function handleSave() {
+  useEffect(() => {
+    if (companyHook.settings) {
+      setCompanyForm({
+        name: companyHook.settings.name || "",
+        address: companyHook.settings.address || "",
+        city: companyHook.settings.city || "",
+        postal_code: companyHook.settings.postal_code || "",
+        canton: companyHook.settings.canton || "GE",
+        phone: companyHook.settings.phone || "",
+        email: companyHook.settings.email || "",
+        iban: companyHook.settings.iban || "",
+        tva_number: companyHook.settings.tva_number || "",
+      });
+    }
+  }, [companyHook.settings]);
+
+  async function handleSave() {
+    await companyHook.saveSettings(companyForm);
     setSaved(true);
     setTimeout(() => setSaved(false), 2000);
   }
 
   const companyFields = [
     { label: "Nom de l'entreprise", key: "name" as const, type: "text" },
-    { label: "Email de contact", key: "email" as const, type: "email" },
-    { label: "Téléphone", key: "phone" as const, type: "tel" },
     { label: "Adresse", key: "address" as const, type: "text" },
-    { label: "Numéro IDE", key: "ide" as const, type: "text" },
+    { label: "Ville", key: "city" as const, type: "text" },
+    { label: "Code postal", key: "postal_code" as const, type: "text" },
+    { label: "Canton", key: "canton" as const, type: "text" },
+    { label: "Téléphone", key: "phone" as const, type: "tel" },
+    { label: "Email de contact", key: "email" as const, type: "email" },
+    { label: "IBAN", key: "iban" as const, type: "text" },
+    { label: "Numéro TVA / IDE", key: "tva_number" as const, type: "text" },
   ];
 
   const rateFields = [
@@ -2414,8 +2513,8 @@ function SettingsPage({ currentUser }: { currentUser: Profile }) {
               <label className="text-sm font-medium text-stone-700">{f.label}</label>
               <input
                 type={f.type}
-                value={company[f.key]}
-                onChange={e => setCompany(prev => ({ ...prev, [f.key]: e.target.value }))}
+                value={companyForm[f.key]}
+                onChange={e => setCompanyForm(prev => ({ ...prev, [f.key]: e.target.value }))}
                 className="col-span-2 px-4 py-2.5 rounded-xl border border-stone-200 text-sm focus:outline-none focus:ring-2 focus:ring-amber-400/50 focus:border-amber-400"
               />
             </div>

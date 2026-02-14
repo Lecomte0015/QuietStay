@@ -307,3 +307,20 @@ export interface PropertyProfitability {
   cleaning_costs: number;
   net_profit: number;
 }
+
+// ─── Company Settings ────────────────────────────────────────
+export interface CompanySettings {
+  id: string;
+  name: string;
+  address: string;
+  city: string;
+  postal_code: string;
+  canton: string;
+  phone: string | null;
+  email: string | null;
+  iban: string | null;
+  tva_number: string | null;
+  logo_url: string | null;
+  created_at: string;
+  updated_at: string;
+}
