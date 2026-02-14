@@ -14,7 +14,7 @@ export function useCompanySettings() {
         .from('company_settings')
         .select('*')
         .limit(1)
-        .single();
+        .maybeSingle();
       setSettings(data as CompanySettings | null);
     } catch { /* table may not exist yet */ }
     setLoading(false);

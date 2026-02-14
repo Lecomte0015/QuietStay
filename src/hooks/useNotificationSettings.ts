@@ -17,7 +17,7 @@ export function useNotificationSettings() {
       .from('notification_settings')
       .select('*')
       .eq('user_id', user.id)
-      .single();
+      .maybeSingle();
     setSettings(data as NotificationSettings | null);
     setLoading(false);
   }, []);
