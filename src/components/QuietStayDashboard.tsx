@@ -152,12 +152,22 @@ export default function QuietStayDashboard() {
   // Essential data: KPIs, properties, bookings, owners (needed for dashboard, notifications, search)
   useEffect(() => {
     if (!user) return;
-    Promise.all([
+
+    // Timeout: show dashboard after 8s even if queries haven't finished
+    const timeout = setTimeout(() => setDataReady(true), 8000);
+
+    // allSettled: don't block if some queries fail (e.g. Supabase cold start)
+    Promise.allSettled([
       kpisHook.fetch(),
       propertiesHook.fetchWithOwners(),
       bookingsHook.fetchWithProperty(),
       ownersHook.fetch(),
-    ]).then(() => setDataReady(true));
+    ]).then(() => {
+      clearTimeout(timeout);
+      setDataReady(true);
+    });
+
+    return () => clearTimeout(timeout);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user]);
 
