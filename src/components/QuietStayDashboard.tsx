@@ -910,64 +910,62 @@ function PropertiesPage({ properties, bookings, accesses, owners, onCreate, onRe
 // ─── BOOKINGS ────────────────────────────────────────────────
 // ─── CONTRACT BUTTON ────────────────────────────────────────
 function ContractButton({ booking, property }: { booking: Booking; property?: Property }) {
-  const [creating, setCreating] = useState(false);
-  const [downloading, setDownloading] = useState(false);
-  const contractsHook = useContracts();
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   async function handleClick() {
-    setCreating(true);
-    try {
-      // Check if contract already exists
-      const existing = await contractsHook.getByBooking(booking.id);
-      if (existing) {
-        // Download existing contract PDF
-        await downloadContractPdf(existing.id);
-        return;
-      }
-
-      // Create contract from booking data
-      const ownerProp = property || booking.property;
-      await contractsHook.create({
-        booking_id: booking.id,
-        property_id: booking.property_id,
-        owner_id: ownerProp?.owner_id || '',
-        guest_name: booking.guest_name,
-        guest_email: booking.guest_email,
-        guest_phone: booking.guest_phone,
-        check_in: booking.check_in,
-        check_out: booking.check_out,
-        total_amount: booking.total_amount || 0,
-        deposit_amount: 0,
-        status: 'draft',
-      });
-
-      // Now fetch and download the newly created contract
-      const newContract = await contractsHook.getByBooking(booking.id);
-      if (newContract) {
-        await downloadContractPdf(newContract.id);
-      }
-    } catch (err) {
-      console.error('Contract creation error:', err);
-    } finally {
-      setCreating(false);
-    }
-  }
-
-  async function downloadContractPdf(contractId: string) {
-    setDownloading(true);
+    setLoading(true);
+    setError(null);
     try {
       const { data: { session } } = await supabase.auth.getSession();
-      if (!session) return;
-      const res = await fetch('/api/contracts/pdf', {
+      if (!session) { setError("Non connecté"); return; }
+      const token = session.access_token;
+
+      // 1. Check if contract already exists for this booking
+      const { data: existing } = await supabase
+        .from('contracts')
+        .select('id')
+        .eq('booking_id', booking.id)
+        .maybeSingle();
+
+      let contractId = existing?.id;
+
+      // 2. If no contract, create one via service client (API route)
+      if (!contractId) {
+        const ownerId = property?.owner_id;
+        if (!ownerId) { setError("Propriétaire introuvable"); return; }
+
+        const createRes = await fetch('/api/contracts/create', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+          body: JSON.stringify({
+            booking_id: booking.id,
+            property_id: booking.property_id,
+            owner_id: ownerId,
+            guest_name: booking.guest_name,
+            guest_email: booking.guest_email || null,
+            guest_phone: booking.guest_phone || null,
+            check_in: booking.check_in,
+            check_out: booking.check_out,
+            total_amount: booking.total_amount || 0,
+          }),
+        });
+        const createData = await createRes.json();
+        if (!createRes.ok) { setError(createData.error || "Erreur création"); return; }
+        contractId = createData.id;
+      }
+
+      // 3. Download PDF
+      if (!contractId) { setError("Contrat non créé"); return; }
+
+      const pdfRes = await fetch('/api/contracts/pdf', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${session.access_token}`,
-        },
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
         body: JSON.stringify({ contract_id: contractId }),
       });
-      if (!res.ok) throw new Error('Erreur PDF');
-      const blob = await res.blob();
+      if (!pdfRes.ok) { setError("Erreur PDF"); return; }
+
+      const blob = await pdfRes.blob();
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
@@ -975,22 +973,30 @@ function ContractButton({ booking, property }: { booking: Booking; property?: Pr
       a.click();
       URL.revokeObjectURL(url);
     } catch (err) {
-      console.error('Contract PDF download error:', err);
+      console.error('Contract error:', err);
+      setError(err instanceof Error ? err.message : "Erreur");
     } finally {
-      setDownloading(false);
+      setLoading(false);
     }
   }
 
   return (
-    <button
-      onClick={handleClick}
-      disabled={creating || downloading}
-      title="Contrat de location"
-      className="inline-flex items-center gap-1 px-2 py-1.5 rounded-lg text-xs font-medium text-stone-600 hover:bg-stone-100 disabled:opacity-40 transition-colors"
-    >
-      {creating || downloading ? <Loader2 size={12} className="animate-spin" /> : <ScrollText size={12} />}
-      Contrat
-    </button>
+    <div className="relative">
+      <button
+        onClick={handleClick}
+        disabled={loading}
+        title="Contrat de location"
+        className="inline-flex items-center gap-1 px-2 py-1.5 rounded-lg text-xs font-medium text-stone-600 hover:bg-stone-100 disabled:opacity-40 transition-colors"
+      >
+        {loading ? <Loader2 size={12} className="animate-spin" /> : <ScrollText size={12} />}
+        Contrat
+      </button>
+      {error && (
+        <div className="absolute top-full right-0 mt-1 z-50 bg-red-50 border border-red-200 text-red-700 text-xs rounded-lg px-3 py-1.5 whitespace-nowrap shadow-lg">
+          {error}
+        </div>
+      )}
+    </div>
   );
 }
 
