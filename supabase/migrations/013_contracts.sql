@@ -25,7 +25,7 @@ CREATE TABLE IF NOT EXISTS public.contracts (
 -- Trigger for updated_at
 CREATE TRIGGER set_contracts_updated_at
   BEFORE UPDATE ON public.contracts
-  FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
+  FOR EACH ROW EXECUTE FUNCTION public.handle_updated_at();
 
 -- RLS
 ALTER TABLE public.contracts ENABLE ROW LEVEL SECURITY;

@@ -26,7 +26,7 @@ CREATE TABLE IF NOT EXISTS public.guidebooks (
 -- Trigger for updated_at
 CREATE TRIGGER set_guidebooks_updated_at
   BEFORE UPDATE ON public.guidebooks
-  FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
+  FOR EACH ROW EXECUTE FUNCTION public.handle_updated_at();
 
 -- RLS
 ALTER TABLE public.guidebooks ENABLE ROW LEVEL SECURITY;
