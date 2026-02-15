@@ -181,6 +181,9 @@ export interface CalendarSource {
   last_sync_status: SyncStatus | null;
   last_sync_message: string | null;
   events_synced: number;
+  auto_sync: boolean;
+  sync_interval_hours: number;
+  last_error: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -333,6 +336,55 @@ export interface AnalyticsData {
   totalRevenue: number;
   totalBookings: number;
   avgOccupancy: number;
+}
+
+// ─── Guidebooks ──────────────────────────────────────────────
+export interface Guidebook {
+  id: string;
+  property_id: string;
+  is_published: boolean;
+  welcome_message: string | null;
+  wifi_name: string | null;
+  wifi_password: string | null;
+  check_in_time: string;
+  check_out_time: string;
+  access_instructions: string | null;
+  house_rules: string | null;
+  parking_info: string | null;
+  transport_info: string | null;
+  restaurants: string | null;
+  activities: string | null;
+  emergency_contacts: string | null;
+  custom_sections: { title: string; content: string }[];
+  created_at: string;
+  updated_at: string;
+}
+
+// ─── Contracts ───────────────────────────────────────────────
+export type ContractStatus = 'draft' | 'sent' | 'signed';
+
+export interface Contract {
+  id: string;
+  booking_id: string;
+  property_id: string;
+  owner_id: string;
+  guest_name: string;
+  guest_address: string | null;
+  guest_email: string | null;
+  guest_phone: string | null;
+  check_in: string;
+  check_out: string;
+  total_amount: number;
+  deposit_amount: number;
+  status: ContractStatus;
+  signed_at: string | null;
+  notes: string | null;
+  created_at: string;
+  updated_at: string;
+  // Joined
+  property?: Property;
+  owner?: Owner;
+  booking?: Booking;
 }
 
 // ─── Company Settings ────────────────────────────────────────

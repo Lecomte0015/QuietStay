@@ -96,6 +96,25 @@ export function useCalendarSources(propertyId: string) {
     return sources.find(s => s.platform === platform);
   }, [sources]);
 
+  const updateAutoSync = useCallback(async (id: string, autoSync: boolean, intervalHours?: number) => {
+    const token = await getToken();
+    const body: Record<string, unknown> = { id, auto_sync: autoSync };
+    if (intervalHours !== undefined) body.sync_interval_hours = intervalHours;
+    const res = await fetch('/api/calendar-sources', {
+      method: 'PATCH',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify(body),
+    });
+    if (!res.ok) {
+      const data = await res.json();
+      throw new Error(data.error || 'Erreur');
+    }
+    await fetchSources();
+  }, [fetchSources]);
+
   return {
     sources,
     loading,
@@ -108,5 +127,6 @@ export function useCalendarSources(propertyId: string) {
     testConnection,
     syncSource,
     getSource,
+    updateAutoSync,
   };
 }

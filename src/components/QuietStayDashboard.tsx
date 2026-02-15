@@ -9,12 +9,13 @@ import {
   ArrowUpRight, TrendingUp, MapPin, Phone, Mail,
   MoreHorizontal, Image, Trash2, Eye, Send, CheckCircle, Pencil, Download,
   BedDouble, Plane, Loader2, UserCheck, DollarSign, Clock, BarChart3,
-  ChevronLeft, ChevronRight, Calendar
+  ChevronLeft, ChevronRight, Calendar, BookOpen, ScrollText
 } from "lucide-react";
 import ICalSyncSection from "@/components/ICalSyncSection";
 import ExportButton from "@/components/ExportButton";
 import AnalyticsPage from "@/components/AnalyticsPage";
 import OwnerPortal from "@/components/OwnerPortal";
+import GuidebookEditor from "@/components/GuidebookEditor";
 import { supabase } from "@/lib/supabase";
 import {
   useAuth, useOwners, useProperties, useBookings, useCleanings,
@@ -27,6 +28,8 @@ import type {
   DashboardKPIs as KPIsType, TodayMovement, Report, ReportData,
   NotificationEventType, PropertyProfitability
 } from "@/types";
+import { useGuidebooks } from "@/hooks/useGuidebooks";
+import { useContracts } from "@/hooks/useContracts";
 import { useProfitability } from "@/hooks/useProfitability";
 import { useNotificationSettings } from "@/hooks/useNotificationSettings";
 import { useWhatsAppNotifier } from "@/hooks/useWhatsAppNotifier";
@@ -312,6 +315,7 @@ export default function QuietStayDashboard() {
     { id: "invoices", label: "Facturation", icon: FileText },
     { id: "profitability", label: "Rentabilité", icon: DollarSign },
     { id: "analytics", label: "Analytique", icon: BarChart3 },
+    { id: "guidebooks", label: "Guidebooks", icon: BookOpen },
     { id: "settings", label: "Paramètres", icon: Settings },
   ];
 
@@ -326,6 +330,7 @@ export default function QuietStayDashboard() {
       case "invoices": return <InvoicesPage invoices={invoicesHook.data} owners={ownersHook.data} bookings={bookingsHook.data} properties={propertiesHook.data} onUpdate={invoicesHook.update} onRemove={invoicesHook.remove} onGenerate={invoicesHook.generateMonthly} reportsHook={reportsHook} />;
       case "profitability": return <ProfitabilityPage />;
       case "analytics": return <AnalyticsPage />;
+      case "guidebooks": return <GuidebooksPage properties={propertiesHook.data} />;
       case "settings": return <SettingsPage currentUser={user!} />;
       default: return <DashboardPage kpis={kpisHook.kpis} movements={kpisHook.movements} loading={kpisHook.loading} />;
     }
@@ -903,6 +908,92 @@ function PropertiesPage({ properties, bookings, accesses, owners, onCreate, onRe
 }
 
 // ─── BOOKINGS ────────────────────────────────────────────────
+// ─── CONTRACT BUTTON ────────────────────────────────────────
+function ContractButton({ booking, property }: { booking: Booking; property?: Property }) {
+  const [creating, setCreating] = useState(false);
+  const [downloading, setDownloading] = useState(false);
+  const contractsHook = useContracts();
+
+  async function handleClick() {
+    setCreating(true);
+    try {
+      // Check if contract already exists
+      const existing = await contractsHook.getByBooking(booking.id);
+      if (existing) {
+        // Download existing contract PDF
+        await downloadContractPdf(existing.id);
+        return;
+      }
+
+      // Create contract from booking data
+      const ownerProp = property || booking.property;
+      await contractsHook.create({
+        booking_id: booking.id,
+        property_id: booking.property_id,
+        owner_id: ownerProp?.owner_id || '',
+        guest_name: booking.guest_name,
+        guest_email: booking.guest_email,
+        guest_phone: booking.guest_phone,
+        check_in: booking.check_in,
+        check_out: booking.check_out,
+        total_amount: booking.total_amount || 0,
+        deposit_amount: 0,
+        status: 'draft',
+      });
+
+      // Now fetch and download the newly created contract
+      const newContract = await contractsHook.getByBooking(booking.id);
+      if (newContract) {
+        await downloadContractPdf(newContract.id);
+      }
+    } catch (err) {
+      console.error('Contract creation error:', err);
+    } finally {
+      setCreating(false);
+    }
+  }
+
+  async function downloadContractPdf(contractId: string) {
+    setDownloading(true);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) return;
+      const res = await fetch('/api/contracts/pdf', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${session.access_token}`,
+        },
+        body: JSON.stringify({ contract_id: contractId }),
+      });
+      if (!res.ok) throw new Error('Erreur PDF');
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `contrat-${contractId.slice(0, 8)}.pdf`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      console.error('Contract PDF download error:', err);
+    } finally {
+      setDownloading(false);
+    }
+  }
+
+  return (
+    <button
+      onClick={handleClick}
+      disabled={creating || downloading}
+      title="Contrat de location"
+      className="inline-flex items-center gap-1 px-2 py-1.5 rounded-lg text-xs font-medium text-stone-600 hover:bg-stone-100 disabled:opacity-40 transition-colors"
+    >
+      {creating || downloading ? <Loader2 size={12} className="animate-spin" /> : <ScrollText size={12} />}
+      Contrat
+    </button>
+  );
+}
+
 function BookingsPage({ bookings, properties, onCreate, onUpdate }: {
   bookings: Booking[]; properties: Property[];
   onCreate: (item: Partial<Booking>) => Promise<unknown>;
@@ -1018,17 +1109,20 @@ function BookingsPage({ bookings, properties, onCreate, onUpdate }: {
                     </div>
                   </td>
                   <td className="px-5 py-4">
-                    <select
-                      value={b.status}
-                      onChange={(e) => onUpdate(b.id, { status: e.target.value as BookingStatus })}
-                      className="text-xs px-2 py-1.5 rounded-lg border border-stone-200 bg-white focus:outline-none focus:ring-2 focus:ring-amber-400/50"
-                    >
-                      <option value="pending">En attente</option>
-                      <option value="confirmed">Confirmée</option>
-                      <option value="checked_in">En cours</option>
-                      <option value="checked_out">Terminée</option>
-                      <option value="cancelled">Annulée</option>
-                    </select>
+                    <div className="flex items-center gap-2">
+                      <select
+                        value={b.status}
+                        onChange={(e) => onUpdate(b.id, { status: e.target.value as BookingStatus })}
+                        className="text-xs px-2 py-1.5 rounded-lg border border-stone-200 bg-white focus:outline-none focus:ring-2 focus:ring-amber-400/50"
+                      >
+                        <option value="pending">En attente</option>
+                        <option value="confirmed">Confirmée</option>
+                        <option value="checked_in">En cours</option>
+                        <option value="checked_out">Terminée</option>
+                        <option value="cancelled">Annulée</option>
+                      </select>
+                      <ContractButton booking={b} property={prop || undefined} />
+                    </div>
                   </td>
                 </tr>
               );
@@ -2408,6 +2502,58 @@ function ProfitabilityPage() {
               })}
             </div>
           )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── GUIDEBOOKS ──────────────────────────────────────────────
+function GuidebooksPage({ properties }: { properties: Property[] }) {
+  const [editingProperty, setEditingProperty] = useState<Property | null>(null);
+  const { guidebooks, loading, fetch } = useGuidebooks();
+
+  useEffect(() => { fetch(); }, [fetch]);
+
+  if (editingProperty) {
+    return <GuidebookEditor property={editingProperty} onBack={() => { setEditingProperty(null); fetch(); }} />;
+  }
+
+  return (
+    <div className="space-y-6">
+      <div>
+        <h2 className="font-serif text-2xl text-stone-900">Guidebooks</h2>
+        <p className="text-sm text-stone-500 mt-1">Guides voyageur pour vos propriétés</p>
+      </div>
+
+      {loading ? (
+        <div className="flex items-center justify-center py-20">
+          <Loader2 size={24} className="animate-spin text-stone-400" />
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+          {properties.map(p => {
+            const gb = guidebooks.find(g => g.property_id === p.id);
+            return (
+              <button key={p.id} onClick={() => setEditingProperty(p)}
+                className="bg-white rounded-2xl border border-stone-200 p-5 text-left hover:border-amber-300 hover:shadow-md transition-all">
+                <div className="flex items-center justify-between mb-3">
+                  <h3 className="font-semibold text-stone-900 text-sm">{p.name}</h3>
+                  {gb ? (
+                    <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${gb.is_published ? "bg-emerald-100 text-emerald-800" : "bg-stone-100 text-stone-600"}`}>
+                      {gb.is_published ? "Publié" : "Brouillon"}
+                    </span>
+                  ) : (
+                    <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-stone-50 text-stone-400">
+                      Aucun
+                    </span>
+                  )}
+                </div>
+                <p className="text-xs text-stone-500">{p.address}, {p.city}</p>
+                {gb?.wifi_name && <p className="text-xs text-stone-400 mt-1">WiFi: {gb.wifi_name}</p>}
+              </button>
+            );
+          })}
         </div>
       )}
     </div>

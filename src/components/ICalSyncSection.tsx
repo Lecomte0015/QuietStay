@@ -1,9 +1,9 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
-import { RefreshCw, CheckCircle, XCircle, Loader2, Trash2, ExternalLink, Save } from "lucide-react";
+import { RefreshCw, CheckCircle, XCircle, Loader2, Trash2, ExternalLink, Save, Copy, Check, Upload } from "lucide-react";
 import { useCalendarSources } from "@/hooks/useCalendarSources";
-import type { CalendarPlatform } from "@/types";
+import type { CalendarPlatform, CalendarSource } from "@/types";
 
 const PLATFORMS: { key: CalendarPlatform; label: string; color: string; bg: string }[] = [
   { key: "airbnb", label: "Airbnb", color: "text-rose-700", bg: "bg-rose-50 border-rose-200" },
@@ -86,13 +86,15 @@ function MockPlatformRow({ platform, source, onSave, onDelete }: {
 }
 
 // ─── Live mode row (with Supabase) ───────────────────────────
-function LivePlatformRow({ platform, source, onSave, onTest, onSync, onDelete, isSyncing, isTesting }: {
+function LivePlatformRow({ platform, source, onSave, onTest, onSync, onDelete, onToggleAutoSync, onChangeInterval, isSyncing, isTesting }: {
   platform: typeof PLATFORMS[number];
-  source: { ical_url: string; last_sync_status: string | null; last_synced_at: string | null; last_sync_message: string | null } | undefined;
+  source: CalendarSource | undefined;
   onSave: (url: string) => Promise<void>;
   onTest: (url: string) => Promise<void>;
   onSync: () => Promise<void>;
   onDelete: () => Promise<void>;
+  onToggleAutoSync: (autoSync: boolean) => Promise<void>;
+  onChangeInterval: (hours: number) => Promise<void>;
   isSyncing: boolean;
   isTesting: boolean;
 }) {
@@ -204,6 +206,75 @@ function LivePlatformRow({ platform, source, onSave, onTest, onSync, onDelete, i
           {source.last_sync_message}
         </div>
       )}
+      {source?.last_error && source.last_sync_status !== "error" && (
+        <div className="text-xs px-3 py-2 rounded-lg bg-red-50 text-red-700">
+          Dernière erreur : {source.last_error}
+        </div>
+      )}
+      {source && (
+        <div className="flex items-center gap-3 pt-1 border-t border-stone-200/60">
+          <label className="flex items-center gap-2 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={source.auto_sync || false}
+              onChange={(e) => onToggleAutoSync(e.target.checked)}
+              className="rounded border-stone-300 text-amber-500 focus:ring-amber-400"
+            />
+            <span className="text-xs text-stone-600">Auto-sync</span>
+          </label>
+          {source.auto_sync && (
+            <select
+              value={source.sync_interval_hours || 6}
+              onChange={(e) => onChangeInterval(parseInt(e.target.value))}
+              className="text-xs px-2 py-1 rounded-lg border border-stone-200 bg-white focus:outline-none focus:ring-2 focus:ring-amber-400/50"
+            >
+              <option value={1}>Toutes les heures</option>
+              <option value={3}>Toutes les 3h</option>
+              <option value={6}>Toutes les 6h</option>
+              <option value={12}>Toutes les 12h</option>
+              <option value={24}>Toutes les 24h</option>
+            </select>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── iCal Export Section ─────────────────────────────────────
+function ICalExportBlock({ propertyId }: { propertyId: string }) {
+  const [copied, setCopied] = useState(false);
+  const exportUrl = typeof window !== "undefined"
+    ? `${window.location.origin}/api/ical-export/${propertyId}`
+    : `/api/ical-export/${propertyId}`;
+
+  function handleCopy() {
+    navigator.clipboard.writeText(exportUrl);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  }
+
+  return (
+    <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 space-y-2">
+      <div className="flex items-center gap-2">
+        <Upload size={14} className="text-amber-600" />
+        <span className="text-sm font-semibold text-amber-800">Export iCal</span>
+      </div>
+      <p className="text-xs text-amber-700">
+        Partagez cette URL avec d&apos;autres plateformes pour exporter vos réservations :
+      </p>
+      <div className="flex items-center gap-2">
+        <input
+          readOnly
+          value={exportUrl}
+          className="flex-1 px-3 py-1.5 rounded-lg border border-amber-300 bg-white text-xs text-stone-700 font-mono"
+        />
+        <button onClick={handleCopy}
+          className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-medium bg-amber-600 text-white hover:bg-amber-700 transition-colors">
+          {copied ? <Check size={12} /> : <Copy size={12} />}
+          {copied ? "Copié" : "Copier"}
+        </button>
+      </div>
     </div>
   );
 }
@@ -312,11 +383,14 @@ export default function ICalSyncSection({ propertyId }: { propertyId: string }) 
                 }}
                 onSync={async () => { if (source) await hook.syncSource(source.id); }}
                 onDelete={async () => { if (source) await hook.deleteSource(source.id); }}
+                onToggleAutoSync={async (autoSync) => { if (source) await hook.updateAutoSync(source.id, autoSync); }}
+                onChangeInterval={async (hours) => { if (source) await hook.updateAutoSync(source.id, source.auto_sync, hours); }}
                 isSyncing={hook.syncing === source?.id}
                 isTesting={hook.testing === p.key}
               />
             );
           })}
+          <ICalExportBlock propertyId={propertyId} />
         </div>
       )}
     </div>

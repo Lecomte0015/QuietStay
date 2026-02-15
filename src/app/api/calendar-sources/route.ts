@@ -88,6 +88,57 @@ export async function POST(request: NextRequest) {
   return NextResponse.json(data, { status: 201 });
 }
 
+// PATCH /api/calendar-sources — update auto_sync settings
+export async function PATCH(request: NextRequest) {
+  const authHeader = request.headers.get('Authorization');
+  if (!authHeader) {
+    return NextResponse.json({ error: 'Non autorisé' }, { status: 401 });
+  }
+
+  const anonClient = createClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+  );
+  const token = authHeader.replace('Bearer ', '');
+  const { data: { user } } = await anonClient.auth.getUser(token);
+  if (!user) {
+    return NextResponse.json({ error: 'Non autorisé' }, { status: 401 });
+  }
+
+  const serviceClient = createServiceClient();
+  const { data: profile } = await serviceClient
+    .from('profiles')
+    .select('role')
+    .eq('id', user.id)
+    .single();
+
+  if (!profile || profile.role !== 'admin') {
+    return NextResponse.json({ error: 'Admin requis' }, { status: 403 });
+  }
+
+  const body = await request.json();
+  const { id, auto_sync, sync_interval_hours } = body;
+
+  if (!id) {
+    return NextResponse.json({ error: 'id requis' }, { status: 400 });
+  }
+
+  const updates: Record<string, unknown> = {};
+  if (auto_sync !== undefined) updates.auto_sync = auto_sync;
+  if (sync_interval_hours !== undefined) updates.sync_interval_hours = sync_interval_hours;
+
+  const { error } = await serviceClient
+    .from('calendar_sources')
+    .update(updates)
+    .eq('id', id);
+
+  if (error) {
+    return NextResponse.json({ error: error.message }, { status: 500 });
+  }
+
+  return NextResponse.json({ success: true });
+}
+
 // DELETE /api/calendar-sources?id=xxx
 export async function DELETE(request: NextRequest) {
   const authHeader = request.headers.get('Authorization');
