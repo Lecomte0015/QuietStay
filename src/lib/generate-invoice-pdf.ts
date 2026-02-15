@@ -1,6 +1,7 @@
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import type { Invoice, Owner, CompanySettings } from '@/types';
+import { renderQRBill } from './qr-bill-renderer';
 
 export interface InvoicePdfData {
   invoice: Invoice;
@@ -9,7 +10,7 @@ export interface InvoicePdfData {
   ownerAddress?: string;
 }
 
-export function generateInvoicePdf(data: InvoicePdfData): Buffer {
+export async function generateInvoicePdf(data: InvoicePdfData): Promise<Buffer> {
   const { invoice, owner, company } = data;
   const doc = new jsPDF({ unit: 'mm', format: 'a4' });
   const pageWidth = doc.internal.pageSize.getWidth();
@@ -137,6 +138,31 @@ export function generateInvoicePdf(data: InvoicePdfData): Buffer {
     company.tva_number ? `TVA: ${company.tva_number}` : '',
   ].filter(Boolean).join(' | ');
   doc.text(footerText, pageWidth / 2, 285, { align: 'center' });
+
+  // ── QR-Bill (if owner has IBAN) ──────────────────────────
+  if (owner.iban) {
+    // Check if we need a new page (QR-bill needs 105mm from bottom = starts at Y=192)
+    if (payY > 177) {
+      doc.addPage();
+    }
+
+    const invoiceNumber = `QS-${invoice.period_start.slice(0, 4)}${invoice.period_start.slice(5, 7)}-${invoice.id.slice(0, 6).toUpperCase()}`;
+
+    await renderQRBill(doc, {
+      creditorIban: owner.iban,
+      creditorName: owner.name,
+      creditorAddress: owner.company || '',
+      creditorPostalCode: '',
+      creditorCity: '',
+      amount: invoice.net_amount,
+      currency: 'CHF',
+      debtorName: company.name || 'QuietStay',
+      debtorAddress: company.address || '',
+      debtorPostalCode: company.postal_code || '',
+      debtorCity: company.city || '',
+      invoiceNumber,
+    });
+  }
 
   return Buffer.from(doc.output('arraybuffer'));
 }

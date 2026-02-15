@@ -83,7 +83,7 @@ export async function POST(request: NextRequest) {
       : undefined;
 
     // 6. Generate PDF
-    const pdfBuffer = generateInvoicePdf({
+    const pdfBuffer = await generateInvoicePdf({
       invoice,
       owner: owner as Owner,
       company,

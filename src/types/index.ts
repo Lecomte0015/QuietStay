@@ -308,6 +308,33 @@ export interface PropertyProfitability {
   net_profit: number;
 }
 
+// ─── Analytics ─────────────────────────────────────────────
+export interface AnalyticsRow {
+  month: number;
+  property_id: string;
+  property_name: string;
+  city: string;
+  platform: string;
+  bookings_count: number;
+  nights_booked: number;
+  days_in_month: number;
+  occupancy_rate: number;
+  gross_revenue: number;
+  cleaning_costs: number;
+  net_revenue: number;
+}
+
+export interface AnalyticsData {
+  revenueByMonth: { month: string; revenue: number }[];
+  occupancyByMonth: { month: string; rate: number }[];
+  revenueByProperty: { name: string; revenue: number }[];
+  revenueByPlatform: { name: string; value: number }[];
+  bookingsByMonth: { month: string; count: number }[];
+  totalRevenue: number;
+  totalBookings: number;
+  avgOccupancy: number;
+}
+
 // ─── Company Settings ────────────────────────────────────────
 export interface CompanySettings {
   id: string;

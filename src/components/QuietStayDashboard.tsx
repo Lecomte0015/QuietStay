@@ -8,10 +8,13 @@ import {
   Smartphone, Hash, Camera, Menu, Bell,
   ArrowUpRight, TrendingUp, MapPin, Phone, Mail,
   MoreHorizontal, Image, Trash2, Eye, Send, CheckCircle, Pencil, Download,
-  BedDouble, Plane, Loader2, UserCheck, DollarSign, Clock,
+  BedDouble, Plane, Loader2, UserCheck, DollarSign, Clock, BarChart3,
   ChevronLeft, ChevronRight, Calendar
 } from "lucide-react";
 import ICalSyncSection from "@/components/ICalSyncSection";
+import ExportButton from "@/components/ExportButton";
+import AnalyticsPage from "@/components/AnalyticsPage";
+import OwnerPortal from "@/components/OwnerPortal";
 import { supabase } from "@/lib/supabase";
 import {
   useAuth, useOwners, useProperties, useBookings, useCleanings,
@@ -308,6 +311,7 @@ export default function QuietStayDashboard() {
     { id: "owners", label: "Propriétaires", icon: Users },
     { id: "invoices", label: "Facturation", icon: FileText },
     { id: "profitability", label: "Rentabilité", icon: DollarSign },
+    { id: "analytics", label: "Analytique", icon: BarChart3 },
     { id: "settings", label: "Paramètres", icon: Settings },
   ];
 
@@ -319,8 +323,9 @@ export default function QuietStayDashboard() {
       case "planning": return <PlanningPage bookings={bookingsHook.data} properties={propertiesHook.data} />;
       case "cleanings": return <CleaningsPage cleanings={cleaningsHook.data} properties={propertiesHook.data} bookings={bookingsHook.data} profiles={profilesHook.data} onUpdate={cleaningsHook.update} onCreate={cleaningsHook.create} onRemove={cleaningsHook.remove} />;
       case "owners": return <OwnersPage owners={ownersHook.data} properties={propertiesHook.data} invoices={invoicesHook.data} onCreate={ownersHook.create} onRemove={ownersHook.remove} />;
-      case "invoices": return <InvoicesPage invoices={invoicesHook.data} owners={ownersHook.data} onUpdate={invoicesHook.update} onRemove={invoicesHook.remove} onGenerate={invoicesHook.generateMonthly} reportsHook={reportsHook} />;
+      case "invoices": return <InvoicesPage invoices={invoicesHook.data} owners={ownersHook.data} bookings={bookingsHook.data} properties={propertiesHook.data} onUpdate={invoicesHook.update} onRemove={invoicesHook.remove} onGenerate={invoicesHook.generateMonthly} reportsHook={reportsHook} />;
       case "profitability": return <ProfitabilityPage />;
+      case "analytics": return <AnalyticsPage />;
       case "settings": return <SettingsPage currentUser={user!} />;
       default: return <DashboardPage kpis={kpisHook.kpis} movements={kpisHook.movements} loading={kpisHook.loading} />;
     }
@@ -388,6 +393,11 @@ export default function QuietStayDashboard() {
         </div>
       </div>
     );
+  }
+
+  // ─── Owner Portal (role-based routing) ─────────────────────
+  if (user.role === 'owner') {
+    return <OwnerPortal user={user} onSignOut={signOut} />;
   }
 
   // ─── Dashboard ─────────────────────────────────────────────
@@ -1623,8 +1633,8 @@ function OwnersPage({ owners, properties, invoices, onCreate, onRemove }: {
 }
 
 // ─── INVOICES ────────────────────────────────────────────────
-function InvoicesPage({ invoices, owners, onUpdate, onRemove, onGenerate, reportsHook }: {
-  invoices: Invoice[]; owners: Owner[];
+function InvoicesPage({ invoices, owners, bookings, properties, onUpdate, onRemove, onGenerate, reportsHook }: {
+  invoices: Invoice[]; owners: Owner[]; bookings: Booking[]; properties: Property[];
   onUpdate: (id: string, updates: Partial<Invoice>) => Promise<unknown>;
   onRemove: (id: string) => Promise<void>;
   onGenerate: (year: number, month: number) => Promise<unknown>;
@@ -1747,9 +1757,12 @@ function InvoicesPage({ invoices, owners, onUpdate, onRemove, onGenerate, report
           </div>
         </div>
         {view === "invoices" && (
-          <button onClick={() => setShowGenerate(true)} className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-stone-900 text-white text-sm font-medium hover:bg-stone-800 transition-colors shadow-lg shadow-stone-900/10">
-            <Plus size={16} /> Générer les factures du mois
-          </button>
+          <div className="flex gap-2">
+            <ExportButton invoices={invoices} bookings={bookings} owners={owners} properties={properties} />
+            <button onClick={() => setShowGenerate(true)} className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-stone-900 text-white text-sm font-medium hover:bg-stone-800 transition-colors shadow-lg shadow-stone-900/10">
+              <Plus size={16} /> Générer les factures du mois
+            </button>
+          </div>
         )}
       </div>
 
